@@ -79,7 +79,7 @@ module PG::EM::Client::Helper
 	# decided to put in their names.
 	#
 	def quote_identifier(id)
-		'"' + id.gsub(/"/, '""') + '"'
+		"\"#{id.gsub(/"/, '""')}\""
 	end
 
 	class Transaction
