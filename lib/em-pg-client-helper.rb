@@ -140,6 +140,11 @@ module PG::EM::Client::Helper
 		# successfully.
 		#
 		def exec(sql, values=[], &blk)
+			unless @active
+				raise RuntimeError,
+				      "Cannot execute a query in a transaction that has been closed"
+			end
+
 			df = @conn.exec_defer(sql, values).
 			       errback { |ex| rollback(ex) }
 			df.callback(&blk) if blk
