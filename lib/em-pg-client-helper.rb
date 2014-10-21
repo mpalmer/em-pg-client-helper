@@ -46,6 +46,19 @@ module PG::EM::Client::Helper
 
 	# Execute code in a transaction.
 	#
+	# Calling this method opens up a transaction (by executing `BEGIN`), and
+	# then runs the supplied block, passing in a transaction object which you
+	# can use to execute SQL commands.  When the block completes, a `COMMIT`
+	# will automatically be executed, unless you have manually called
+	# `txn.commit` or `txn.rollback`.  Since `db_transaction` returns a
+	# deferrable, you should use `#callback` to specify what to run after the
+	# transaction completes.
+	#
+	# If an SQL error occurs during the transaction, the block's execution
+	# will be aborted, a `ROLLBACK` will be executed, and the `#errback`
+	# block (if defined) on the deferrable will be executed (rather than the
+	# `#callback` block).
+	#
 	# Arguments:
 	#
 	#  * `db` -- A PG::EM::Client or PG::EM::ConnectionPool instance, against
