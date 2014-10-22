@@ -31,19 +31,19 @@ describe "PG::EM::Client::Helper#db_transaction" do
 
 	it "runs a BEGIN/COMMIT cycle by default" do
 		mock_query_chain([["BEGIN"], ["COMMIT"]]) do
-			# Nothing
+			EM::DefaultDeferrable.new.tap { |df| df.succeed }
 		end
 	end
 	
 	it "rolls back if BEGIN fails" do
 		mock_query_chain([["BEGIN"], ["ROLLBACK"]], 0) do
-			# Nothing
+			EM::DefaultDeferrable.new.tap { |df| df.succeed }
 		end
 	end
 	
 	it "rolls back if COMMIT fails" do
 		mock_query_chain([["BEGIN"], ["COMMIT"], ["ROLLBACK"]], 1) do
-			# Nothing
+			EM::DefaultDeferrable.new.tap { |df| df.succeed }
 		end
 	end
 

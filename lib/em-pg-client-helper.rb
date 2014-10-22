@@ -56,8 +56,8 @@ module PG::EM::Client::Helper
 	#
 	# If an SQL error occurs during the transaction, the block's execution
 	# will be aborted, a `ROLLBACK` will be executed, and the `#errback`
-	# block (if defined) on the deferrable will be executed (rather than the
-	# `#callback` block).
+	# block (if defined) on the deferrable that `db_transaction` returns will
+	# be executed (rather than the `#callback` block).
 	#
 	# Arguments:
 	#
@@ -71,7 +71,10 @@ module PG::EM::Client::Helper
 	#    of the transaction.  This block will be passed a
 	#    `PG::EM::Client::Helper::Transaction` instance, which has methods to
 	#    allow you to commit or rollback the transaction, and execute SQL
-	#    statements within the context of the transaction.
+	#    statements within the context of the transaction.  This block *must*
+	#    return a deferrable.  When that returned deferrable completes, a
+	#    COMMIT will be triggered automatically.  If that deferrable fails,
+	#    a ROLLBACK will be sent, instead.
 	#
 	# Returns a deferrable object, on which you can call `#callback` and
 	# `#errback` to define what to do when the transaction succeeds or fails,
@@ -107,8 +110,13 @@ module PG::EM::Client::Helper
 			@active     = true
 			
 			conn.exec_defer("BEGIN").callback do
-				blk.call(self)
-				commit if @active
+				df = blk.call(self)
+				unless df.respond_to? :callback
+					raise RuntimeError,
+					      "Block passed to #{self.class} did not return a deferrable"
+				end
+				df.callback { commit if @active }
+				df.errback { |ex| rollback(ex) }
 			end.errback { |ex| rollback(ex) }
 		end
 
@@ -158,9 +166,9 @@ module PG::EM::Client::Helper
 				      "Cannot execute a query in a transaction that has been closed"
 			end
 
-			df = @conn.exec_defer(sql, values).
-			       errback { |ex| rollback(ex) }
-			df.callback(&blk) if blk
+			@conn.exec_defer(sql, values).
+			        errback { |ex| rollback(ex) }.
+			        tap { |df| df.callback(&blk) if blk }
 		end
 	end
 end
