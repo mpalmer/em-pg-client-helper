@@ -139,9 +139,11 @@ module PG::EM::Client::Helper
 		# event of a database error or other exception.
 		#
 		def rollback(ex)
-			@conn.exec_defer("ROLLBACK") do
-				@active = false
-				self.fail(ex)
+			if @active
+				@conn.exec_defer("ROLLBACK") do
+					@active = false
+					self.fail(ex)
+				end
 			end
 		end
 
