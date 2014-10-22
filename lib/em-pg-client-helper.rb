@@ -79,7 +79,7 @@ module PG::EM::Client::Helper
 	#
 	def db_transaction(db, opts = {}, &blk)
 		if db.is_a? PG::EM::ConnectionPool
-			db.__send__(:hold_deferrable) do |conn|
+			db.__send__(:hold_deferred) do |conn|
 				::PG::EM::Client::Helper::Transaction.new(conn, opts, &blk)
 			end
 		else
