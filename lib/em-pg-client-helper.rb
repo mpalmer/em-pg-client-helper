@@ -48,11 +48,12 @@ module PG::EM::Client::Helper
 	#
 	# Calling this method opens up a transaction (by executing `BEGIN`), and
 	# then runs the supplied block, passing in a transaction object which you
-	# can use to execute SQL commands.  When the block completes, a `COMMIT`
-	# will automatically be executed, unless you have manually called
-	# `txn.commit` or `txn.rollback`.  Since `db_transaction` returns a
-	# deferrable, you should use `#callback` to specify what to run after the
-	# transaction completes.
+	# can use to execute SQL commands.  You *must* call `txn.commit` or
+	# `txn.callback` yourself as your inner-most callback, otherwise you will
+	# leave the connection in a weird limbo state.
+	#
+	# Since `db_transaction` returns a deferrable, you should use `#callback`
+	# to specify what to run after the transaction completes.
 	#
 	# If an SQL error occurs during the transaction, the block's execution
 	# will be aborted, a `ROLLBACK` will be executed, and the `#errback`
@@ -110,13 +111,7 @@ module PG::EM::Client::Helper
 			@active     = true
 			
 			conn.exec_defer("BEGIN").callback do
-				df = blk.call(self)
-				unless df.respond_to? :callback
-					raise RuntimeError,
-					      "Block passed to #{self.class} did not return a deferrable"
-				end
-				df.callback { commit if @active }
-				df.errback { |ex| rollback(ex) }
+				blk.call(self)
 			end.errback { |ex| rollback(ex) }
 		end
 
