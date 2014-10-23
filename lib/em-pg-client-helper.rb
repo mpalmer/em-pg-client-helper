@@ -108,7 +108,6 @@ module PG::EM::Client::Helper
 			
 			conn.exec_defer("BEGIN").callback do
 				blk.call(self)
-				commit if @active
 			end.errback { |ex| rollback(ex) }
 		end
 
@@ -161,6 +160,7 @@ module PG::EM::Client::Helper
 			df = @conn.exec_defer(sql, values).
 			       errback { |ex| rollback(ex) }
 			df.callback(&blk) if blk
+                        df
 		end
 	end
 end
