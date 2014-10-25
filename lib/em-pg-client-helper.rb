@@ -48,17 +48,16 @@ module PG::EM::Client::Helper
 	#
 	# Calling this method opens up a transaction (by executing `BEGIN`), and
 	# then runs the supplied block, passing in a transaction object which you
-	# can use to execute SQL commands.  You *must* call `txn.commit` or
-	# `txn.callback` yourself as your inner-most callback, otherwise you will
-	# leave the connection in a weird limbo state.
+	# can use to execute SQL commands.  Once the transaction is finished,
+	# `COMMIT` or `ROLLBACK` will be sent to the DB server to complete the
+	# transaction, depending on whether or not any errors (query failures or
+	# Ruby exceptions) appeared during the transaction.  You can also
+	# manually call `txn.rollback(reason)` if you want to signal that the
+	# transaction should be rolled back.
 	#
-	# Since `db_transaction` returns a deferrable, you should use `#callback`
-	# to specify what to run after the transaction completes.
-	#
-	# If an SQL error occurs during the transaction, the block's execution
-	# will be aborted, a `ROLLBACK` will be executed, and the `#errback`
-	# block (if defined) on the deferrable that `db_transaction` returns will
-	# be executed (rather than the `#callback` block).
+	# You should use `#callback` and `#errback` against the deferrable that
+	# `db_transaction` returns to specify what to run after the transaction
+	# completes successfully or fails, respectively.
 	#
 	# Arguments:
 	#
@@ -72,10 +71,7 @@ module PG::EM::Client::Helper
 	#    of the transaction.  This block will be passed a
 	#    `PG::EM::Client::Helper::Transaction` instance, which has methods to
 	#    allow you to commit or rollback the transaction, and execute SQL
-	#    statements within the context of the transaction.  This block *must*
-	#    return a deferrable.  When that returned deferrable completes, a
-	#    COMMIT will be triggered automatically.  If that deferrable fails,
-	#    a ROLLBACK will be sent, instead.
+	#    statements within the context of the transaction.
 	#
 	# Returns a deferrable object, on which you can call `#callback` and
 	# `#errback` to define what to do when the transaction succeeds or fails,
@@ -98,74 +94,8 @@ module PG::EM::Client::Helper
 	def quote_identifier(id)
 		"\"#{id.gsub(/"/, '""')}\""
 	end
-
-	class Transaction
-		include ::PG::EM::Client::Helper
-		include ::EventMachine::Deferrable
-		
-		# Create a new transaction.  You shouldn't have to call this yourself;
-		# `db_transaction` should create one and pass it to your block.
-		def initialize(conn, opts, &blk)
-			@conn       = conn
-			@opts       = opts
-			@active     = true
-			
-			conn.exec_defer("BEGIN").callback do
-				blk.call(self)
-			end.errback { |ex| rollback(ex) }
-		end
-
-		# Signal the database to commit this transaction.  You must do this
-		# once you've completed your queries, it won't be called automatically
-		# for you.  Once you've committed the transaction, you cannot use it
-		# again; if you execute a query against a committed transaction, an
-		# exception will be raised.
-		#
-		def commit
-			@conn.exec_defer("COMMIT").callback do
-				self.succeed
-				@active = false
-			end.errback { |ex| rollback(ex) }
-		end
-
-		# Signal the database to abort this transaction.  You only need to
-		# call this method if you need to rollback for some business logic
-		# reason -- a rollback will be automatically performed for you in the
-		# event of a database error or other exception.
-		#
-		def rollback(ex)
-			if @active
-				@conn.exec_defer("ROLLBACK") do
-					@active = false
-					self.fail(ex)
-				end
-			end
-		end
-
-		# Insert a row of data into the database table `tbl`, using the keys
-		# from the `params` hash as the field names, and the values from the
-		# `params` hash as the field data.  Once the query has completed,
-		# `blk` will be called to allow the transaction to continue.
-		#
-		def insert(tbl, params, &blk)
-			exec(*insert_sql(tbl, params), &blk)
-		end
-
-		# Execute an arbitrary block of SQL in `sql` within the transaction. 
-		# If you need to pass dynamic values to the query, those should be
-		# given in `values`, and referenced in `sql` as `$1`, `$2`, etc.  The
-		# given block will be called if and when the query completes
-		# successfully.
-		#
-		def exec(sql, values=[], &blk)
-			unless @active
-				raise RuntimeError,
-				      "Cannot execute a query in a transaction that has been closed"
-			end
-
-			@conn.exec_defer(sql, values).
-			        errback { |ex| rollback(ex) }.
-			        tap { |df| df.callback(&blk) if blk }
-		end
-	end
 end
+
+require_relative 'em-pg-client-helper/transaction'
+require_relative 'em-pg-client-helper/deferrable_group'
+
