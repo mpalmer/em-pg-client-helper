@@ -13,7 +13,11 @@ class PG::EM::Client::Helper::Transaction
 			@dg = dg
 			dg.add(
 				conn.exec_defer("BEGIN").callback do
-					blk.call(self)
+					begin
+						blk.call(self)
+					rescue StandardError => ex
+						rollback(ex)
+					end
 				end.errback { |ex| rollback(ex) }
 			)
 		end.callback { commit }.errback { |ex| rollback(ex) }

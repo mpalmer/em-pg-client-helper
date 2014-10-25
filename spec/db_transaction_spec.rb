@@ -142,4 +142,16 @@ describe "PG::EM::Client::Helper#db_transaction" do
 			end
 		end
 	end
+
+	it "catches exceptions" do
+		in_em do
+			expect_query("BEGIN")
+			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
+			expect_query("ROLLBACK")
+			in_transaction do |txn|
+				txn.insert("foo", :bar => 'baz')
+				raise "OMFG"
+			end
+		end
+	end
 end
