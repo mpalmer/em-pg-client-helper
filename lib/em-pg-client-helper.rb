@@ -11,34 +11,37 @@ module PG::EM::Client::Helper
 	# a two-element array consisting of the parameterised SQL as the first
 	# element, and the array of parameters as the second element.
 	#
+	# @param tbl [#to_s]
+	#
+	# @param params [Hash<#to_s, Object>]
+	#
 	def insert_sql(tbl, params)
 		keys = params.keys.map { |k| quote_identifier(k.to_s) }.join(',')
 		vals = params.values
 		val_places = (1..vals.length).to_a.map { |i| "$#{i}" }.join(',')
 
-		["INSERT INTO #{quote_identifier(tbl)} (#{keys}) VALUES (#{val_places})", vals]
+		["INSERT INTO #{quote_identifier(tbl.to_s)} (#{keys}) VALUES (#{val_places})", vals]
 	end
 
 	# Run an insert query, without having to write a great pile of SQL all by
 	# yourself.
 	#
-	# Arguments:
+	# @param db [PG::EM::Client, PG::EM::ConnectionPool] the connection
+	#   against which all database operations will be run.
 	#
-	#  * `db` -- A PG::EM::Client or PG::EM::ConnectionPool instance, against
-	#    which all database operations will be executed.
+	# @param tbl [#to_s] the name of the table into which you wish to insert
+	#   your data.  This parameter will be automatically quoted, if
+	#   necessary.
 	#
-	#  * `tbl` -- The name of the table into which you wish to insert your data.
-	#    This parameter will be automatically quoted, if necessary.
+	# @param params [Hash<#to_s, Object>] the fields you wish to insert into
+	#   (the keys of the hash) and the values to insert into each field (the
+	#   values of the hash).  All field names and data will be automatically
+	#   quoted and made safe, so you're automatically SQL injection-proof!
 	#
-	#  * `params` -- A hash containing the fields you wish to insert into
-	#    (the keys of the hash) and the values to insert into each field (the
-	#    values of the hash).  All field names and data will be automatically
-	#    quoted and made safe, so you're automatically SQL injection-proof!
-	#
-	# This method returns the deferrable in which the query is being called;
-	# this means you should attach the code to run after the query completes
-	# with `#callback`, and you can attach an error handler with `#errback`
-	# if you like.
+	# @return [EM::Deferrable] the deferrable in which the query is being
+	#   called; this means you should attach the code to run after the query
+	#   completes with `#callback`, and you can attach an error handler with
+	#   `#errback` if you like.
 	#
 	def db_insert(db, tbl, params)
 		db.exec_defer(*insert_sql(tbl, params))
@@ -59,23 +62,27 @@ module PG::EM::Client::Helper
 	# `db_transaction` returns to specify what to run after the transaction
 	# completes successfully or fails, respectively.
 	#
-	# Arguments:
+	# @param db [PG::EM::Client, PG::EM::ConnectionPool] the connection
+	#   against which the transaction will be executed.  If you pass a
+	#   `ConnectionPool`, we will automatically hold a single connection for
+	#   the transaction to complete against, so you don't have to worry about
+	#   that, either.
 	#
-	#  * `db` -- A PG::EM::Client or PG::EM::ConnectionPool instance, against
-	#    which all database operations will be executed.  If you pass a
-	#    ConnectionPool, we will automatically hold a single connection for
-	#    the transaction to complete against, so you don't have to worry
-	#    about that, either.
+	# @param blk [Proc] code which will be executed within the context of the
+	#   transaction.  This block will be passed a
+	#   {PG::EM::Client::Helper::Transaction} instance, which has methods to
+	#   allow you to commit or rollback the transaction, and execute SQL
+	#   statements within the context of the transaction.
 	#
-	#  * `blk` -- A block of code which will be executed within the context
-	#    of the transaction.  This block will be passed a
-	#    `PG::EM::Client::Helper::Transaction` instance, which has methods to
-	#    allow you to commit or rollback the transaction, and execute SQL
-	#    statements within the context of the transaction.
+	# @return [EM::Deferrable] on which you can call `#callback` and
+	#   `#errback` to define what to do when the transaction succeeds or
+	#   fails, respectively.
 	#
-	# Returns a deferrable object, on which you can call `#callback` and
-	# `#errback` to define what to do when the transaction succeeds or fails,
-	# respectively.
+	# @note Due to the way that transactions detect when they are completed,
+	#   every deferrable in the scope of the transaction must be generated
+	#   by the transaction.  That is, you cannot use objects other than the
+	#   transaction asynchronously.  This is a known limitation, and will be
+	#   addressed in a future version of this library.
 	#
 	def db_transaction(db, opts = {}, &blk)
 		if db.is_a? PG::EM::ConnectionPool
@@ -91,11 +98,14 @@ module PG::EM::Client::Helper
 	# it so that it will always be valid, no matter what insanity someone's
 	# decided to put in their names.
 	#
+	# @param id [String]
+	#
+	# @return [String] just like `id`, but with added quoting.
+	#
 	def quote_identifier(id)
 		"\"#{id.gsub(/"/, '""')}\""
 	end
 end
 
-require_relative 'em-pg-client-helper/transaction'
-require_relative 'em-pg-client-helper/deferrable_group'
-
+require 'em-pg-client-helper/transaction'
+require 'em-pg-client-helper/deferrable_group'

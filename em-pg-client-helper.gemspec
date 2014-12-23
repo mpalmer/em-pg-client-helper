@@ -27,6 +27,7 @@ Gem::Specification.new do |s|
 	s.add_development_dependency 'rb-inotify', '~> 0.9'
 	s.add_development_dependency 'pry-debugger'
 	s.add_development_dependency 'rake', '~> 10.4', '>= 1.0.4.2'
-	s.add_development_dependency 'rdoc'
+	s.add_development_dependency 'redcarpet'
 	s.add_development_dependency 'rspec'
+	s.add_development_dependency 'yard'
 end
