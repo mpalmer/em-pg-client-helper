@@ -11,16 +11,21 @@ class PG::EM::Client::Helper::Transaction
 
 		DeferrableGroup.new do |dg|
 			@dg = dg
-			dg.add(
-				conn.exec_defer("BEGIN").callback do
-					begin
-						blk.call(self)
-					rescue StandardError => ex
-						rollback(ex)
-					end
-				end.errback { |ex| rollback(ex) }
-			)
-		end.callback { commit }.errback { |ex| rollback(ex) }
+
+			df = conn.exec_defer("BEGIN").callback do
+				begin
+					blk.call(self)
+				rescue StandardError => ex
+					rollback(ex)
+				end
+			end.errback { |ex| rollback(ex) }
+
+			@dg.add(df)
+		end.callback do
+			rollback(RuntimeError.new("txn.commit was not called"))
+		end.errback do |ex|
+			rollback(ex)
+		end
 	end
 
 	# Signal the database to commit this transaction.  You must do this
@@ -31,10 +36,12 @@ class PG::EM::Client::Helper::Transaction
 	#
 	def commit
 		if @active
-			@conn.exec_defer("COMMIT").callback do
+			df = @conn.exec_defer("COMMIT").callback do
 				@active = false
 				self.succeed
 			end.errback { |ex| rollback(ex) }
+
+			@dg.add(df)
 		end
 	end
 
@@ -45,10 +52,12 @@ class PG::EM::Client::Helper::Transaction
 	#
 	def rollback(ex)
 		if @active
-			@conn.exec_defer("ROLLBACK") do
+			df = @conn.exec_defer("ROLLBACK") do
 				@active = false
 				self.fail(ex)
 			end
+
+			@dg.add(df)
 		end
 	end
 
