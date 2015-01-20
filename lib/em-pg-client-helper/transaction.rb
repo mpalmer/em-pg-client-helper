@@ -70,12 +70,12 @@ class PG::EM::Client::Helper::Transaction
 	def exec(sql, values=[], &blk)
 		unless @active
 			raise RuntimeError,
-					"Cannot execute a query in a transaction that has been closed"
+			      "Cannot execute a query in a transaction that has been closed"
 		end
 
 		@dg.add(
 			@conn.exec_defer(sql, values).
-					  tap { |df| df.callback(&blk) if blk }
+			        tap { |df| df.callback(&blk) if blk }
 		)
 	end
 end
