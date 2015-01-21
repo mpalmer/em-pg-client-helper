@@ -87,4 +87,5 @@ class PG::EM::Client::Helper::Transaction
 			        tap { |df| df.callback(&blk) if blk }
 		)
 	end
+	alias_method :exec_defer, :exec
 end
