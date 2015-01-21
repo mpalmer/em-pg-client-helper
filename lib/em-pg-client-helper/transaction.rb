@@ -15,17 +15,12 @@ class PG::EM::Client::Helper::Transaction
 		DeferrableGroup.new do |dg|
 			@dg = dg
 
-			trace_query("BEGIN")
-			@conn.exec_defer("BEGIN").tap do |df|
-				@dg.add(df)
-			end.callback do
+			exec("BEGIN") do
 				begin
 					blk.call(self)
 				rescue StandardError => ex
 					rollback(ex)
 				end
-			end.errback do |ex|
-				rollback(ex)
 			end
 		end.callback do
 			rollback(RuntimeError.new("txn.commit was not called")) unless @committed
@@ -64,7 +59,7 @@ class PG::EM::Client::Helper::Transaction
 	def commit
 		if @committed.nil?
 			trace_query("COMMIT")
-			@conn.exec_defer("COMMIT").tap do |df|
+			@conn.exec_defer("COMMIT", []).tap do |df|
 				@dg.add(df)
 			end.callback do
 				@committed = true
@@ -84,10 +79,7 @@ class PG::EM::Client::Helper::Transaction
 	#
 	def rollback(ex)
 		if @committed.nil?
-			trace_query("ROLLBACK")
-			@conn.exec_defer("ROLLBACK").tap do |df|
-				@dg.add(df)
-			end.callback do
+			exec("ROLLBACK") do
 				@committed = false
 				@dg.fail(ex)
 				@dg.close
