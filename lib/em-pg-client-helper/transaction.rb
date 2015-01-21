@@ -12,17 +12,15 @@ class PG::EM::Client::Helper::Transaction
 		DeferrableGroup.new do |dg|
 			@dg = dg
 
-			df = conn.exec_defer("BEGIN").callback do
+			conn.exec_defer("BEGIN").callback do
 				begin
 					blk.call(self)
 				rescue StandardError => ex
 					rollback(ex)
 				end
-			end.errback { |ex| rollback(ex) }
-
-			@dg.add(df)
+			end.errback { |ex| rollback(ex) }.tap { |df| @dg.add(df) }
 		end.callback do
-			rollback(RuntimeError.new("txn.commit was not called"))
+			rollback(RuntimeError.new("txn.commit was not called")) if @active
 		end.errback do |ex|
 			rollback(ex)
 		end
@@ -36,12 +34,10 @@ class PG::EM::Client::Helper::Transaction
 	#
 	def commit
 		if @active
-			df = @conn.exec_defer("COMMIT").callback do
+			@conn.exec_defer("COMMIT").callback do
 				@active = false
 				self.succeed
-			end.errback { |ex| rollback(ex) }
-
-			@dg.add(df)
+			end.errback { |ex| rollback(ex) }.tap { |df| @dg.add(df) }
 		end
 	end
 
@@ -52,12 +48,10 @@ class PG::EM::Client::Helper::Transaction
 	#
 	def rollback(ex)
 		if @active
-			df = @conn.exec_defer("ROLLBACK") do
+			@conn.exec_defer("ROLLBACK") do
 				@active = false
 				self.fail(ex)
-			end
-
-			@dg.add(df)
+			end.tap { |df| @dg.add(df) }
 		end
 	end
 
@@ -76,16 +70,19 @@ class PG::EM::Client::Helper::Transaction
 	# given block will be called if and when the query completes
 	# successfully.
 	#
+	# @returns [EM::Deferrable] A deferrable that will be completed when this
+	#   specific query finishes.
+	#
 	def exec(sql, values=[], &blk)
 		unless @active
 			raise RuntimeError,
 			      "Cannot execute a query in a transaction that has been closed"
 		end
 
-		@dg.add(
-			@conn.exec_defer(sql, values).
-			        tap { |df| df.callback(&blk) if blk }
-		)
+		@conn.exec_defer(sql, values).tap do |df|
+			@dg.add(df)
+			df.callback(&blk) if blk
+		end
 	end
 	alias_method :exec_defer, :exec
 end
