@@ -10,24 +10,49 @@ class PG::EM::Client::Helper::Transaction
 		# This can be `nil` if the txn is in progress, or it will be
 		# true or false to indicate success/failure of the txn
 		@committed  = nil
+		@retryable  = false
 
 		DeferrableGroup.new do |dg|
 			@dg = dg
 
 			trace_query("BEGIN")
-			@conn.exec_defer("BEGIN").callback do
+			@conn.exec_defer("BEGIN").tap do |df|
+				@dg.add(df)
+			end.callback do
 				begin
 					blk.call(self)
 				rescue StandardError => ex
 					rollback(ex)
 				end
-			end.errback { |ex| rollback(ex) }.tap { |df| @dg.add(df) }
+			end.errback do |ex|
+				rollback(ex)
+			end
 		end.callback do
 			rollback(RuntimeError.new("txn.commit was not called")) unless @committed
 			self.succeed
 		end.errback do |ex|
-			self.fail(ex)
+			if @retryable and [PG::TRSerializationFailure].include?(ex.class)
+				self.class.new(conn, opts, &blk).callback do
+					self.succeed
+				end.errback do |ex|
+					self.fail(ex)
+				end
+			else
+				self.fail(ex)
+			end
 		end
+	end
+
+	# Mark the transaction as requiring the serializable isolation level.
+	#
+	# @param retryable [TrueClass, FalseClass] Whether or not the transaction
+	#   should be retried if some sort of transaction-level failure occurs.
+	#   Be careful enabling this, as the entire block will be re-run, including
+	#   any code that creates side-effects elsewhere.
+	#
+	def serializable(retryable = false, &blk)
+		@retryable = retryable
+		exec("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", &blk)
 	end
 
 	# Signal the database to commit this transaction.  You must do this

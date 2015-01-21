@@ -3,21 +3,22 @@ require_relative './spec_helper'
 describe "PG::EM::Client::Helper#db_transaction" do
 	let(:mock_conn) { double(PG::EM::Client) }
 
-	def expect_query_failure(q, args=nil, exec_time = 0.001)
-		expect_query(q, args, exec_time, :fail)
+	def expect_query_failure(q, args=nil, err=nil, exec_time = 0.001)
+		err ||= RuntimeError.new("Dummy failure")
+		expect_query(q, args, exec_time, :fail, err)
 	end
 
-	def expect_query(q, args=nil, exec_time = 0.001, disposition = :succeed)
+	def expect_query(q, args=nil, exec_time = 0.001, disposition = :succeed, *disp_opts)
 		df = EM::DefaultDeferrable.new
 
-		ex = expect(mock_conn).
-		  to receive(:exec_defer).
-		  with(*[q, args].compact).
-		  and_return(df).
-		  ordered
+		expect(mock_conn)
+		  .to receive(:exec_defer)
+		  .with(*[q, args].compact)
+		  .and_return(df)
+		  .ordered
 
 		EM.add_timer(exec_time) do
-			df.__send__(disposition)
+			df.__send__(disposition, *disp_opts)
 		end
 	end
 
@@ -155,6 +156,49 @@ describe "PG::EM::Client::Helper#db_transaction" do
 			in_transaction do |txn|
 				txn.insert("foo", :bar => 'baz')
 				raise "OMFG"
+			end
+		end
+	end
+
+	it "retries if it gets an error during the transaction" do
+		in_em do
+			expect_query("BEGIN")
+			expect_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", [])
+			expect_query_failure('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"], PG::TRSerializationFailure.new("OMFG!"))
+			expect_query("ROLLBACK")
+			expect_query("BEGIN")
+			expect_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", [])
+			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
+			expect_query("COMMIT")
+
+			in_transaction do |txn|
+				txn.serializable(true) do
+					txn.insert("foo", :bar => 'baz') do
+						txn.commit
+					end
+				end
+			end
+		end
+	end
+
+	it "retries if it gets an error on commit" do
+		in_em do
+			expect_query("BEGIN")
+			expect_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", [])
+			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
+			expect_query_failure("COMMIT", nil, PG::TRSerializationFailure.new("OMFG!"))
+			expect_query("ROLLBACK")
+			expect_query("BEGIN")
+			expect_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", [])
+			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
+			expect_query("COMMIT")
+
+			in_transaction do |txn|
+				txn.serializable(true) do
+					txn.insert("foo", :bar => 'baz') do
+						txn.commit
+					end
+				end
 			end
 		end
 	end

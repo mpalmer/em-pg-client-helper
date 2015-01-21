@@ -2,7 +2,7 @@ require 'spork'
 
 Spork.prefork do
 	require 'bundler'
-	Bundler.setup(:default, :test)
+	Bundler.setup(:default, :development, :test)
 	require 'rspec/core'
 	require 'rspec/mocks'
 
