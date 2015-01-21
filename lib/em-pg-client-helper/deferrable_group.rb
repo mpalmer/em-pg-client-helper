@@ -10,10 +10,10 @@ class PG::EM::Client::Helper::DeferrableGroup
 	# Create a new deferrable group.
 	#
 	def initialize
-		@failed = false
-		@finished = false
-		@first_failure = nil
+		@closed      = false
+		@failure     = nil
 		@outstanding = []
+
 		yield(self) if block_given?
 	end
 
@@ -24,17 +24,32 @@ class PG::EM::Client::Helper::DeferrableGroup
 	# @return [EM::Deferrable] the same deferrable.
 	#
 	# @raise [RuntimeError] if you attempt to add a deferrable after the
-	#   group has already "completed" (that is, all deferrables that were
-	#   previously added to the group have finished).
+	#   group has been closed (that is, the `#close` method has been called),
+	#   indicating that the deferrable group doesn't have any more deferrables
+	#   to add.
 	#
 	def add(df)
-		if @finished
+		if @closed
 			raise RuntimeError,
-			      "This deferrable group has already completed."
+			      "This deferrable group is closed."
 		end
 
 		@outstanding << df
 		df.callback { completed(df) }.errback { |ex| failed(df, ex) }
+	end
+
+	# Tell the group that no further deferrables are to be added
+	#
+	# If all the deferrables in a group are complete, the group can't be sure
+	# whether further deferrables may be added in the future.  By requiring
+	# an explicit `#close` call before the group completes, this ambiguity is
+	# avoided.  It does, however, mean that if you forget to close the
+	# deferrable group, your code is going to hang.  Such is the risk of
+	# async programming.
+	#
+	def close
+		@closed = true
+		maybe_done
 	end
 
 	# Mark a deferrable as having been completed.
@@ -58,8 +73,7 @@ class PG::EM::Client::Helper::DeferrableGroup
 	# will unfortunately be eaten by a grue.
 	#
 	def failed(df, ex)
-		@first_failure ||= ex
-		@failed = true
+		@failure ||= ex
 		completed(df)
 	end
 
@@ -67,10 +81,9 @@ class PG::EM::Client::Helper::DeferrableGroup
 	# Called every time a deferrable finishes, just in case we're ready to
 	# trigger our callbacks.
 	def maybe_done
-		if @outstanding.empty?
-			@finished = true
-			if @failed
-				fail(@first_failure)
+		if @closed and @outstanding.empty?
+			if @failure
+				fail(@failure)
 			else
 				succeed
 			end

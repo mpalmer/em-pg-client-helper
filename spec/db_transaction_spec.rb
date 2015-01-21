@@ -16,11 +16,6 @@ describe "PG::EM::Client::Helper#db_transaction" do
 		  and_return(df).
 		  ordered
 
-		# Rollback expects a yield
-		if q == "ROLLBACK"
-			ex.and_yield()
-		end
-
 		EM.add_timer(exec_time) do
 			df.__send__(disposition)
 		end
@@ -32,7 +27,7 @@ describe "PG::EM::Client::Helper#db_transaction" do
 
 	def in_em
 		EM.run do
-			EM.add_timer(1) { EM.stop; raise "test timeout" }
+			EM.add_timer(0.5) { EM.stop; raise "test timeout" }
 			yield
 		end
 	end
@@ -41,8 +36,8 @@ describe "PG::EM::Client::Helper#db_transaction" do
 		in_em do
 			expect_query("BEGIN")
 			expect_query("COMMIT")
-			in_transaction do
-				# Nothing
+			in_transaction do |txn|
+				txn.commit
 			end
 		end
 	end
@@ -51,8 +46,8 @@ describe "PG::EM::Client::Helper#db_transaction" do
 		in_em do
 			expect_query_failure("BEGIN")
 			expect_query("ROLLBACK")
-			in_transaction do
-				# Nothing
+			in_transaction do |txn|
+				txn.commit
 			end
 		end
 	end
@@ -62,8 +57,8 @@ describe "PG::EM::Client::Helper#db_transaction" do
 			expect_query("BEGIN")
 			expect_query_failure("COMMIT")
 			expect_query("ROLLBACK")
-			in_transaction do
-				# Nothing
+			in_transaction do |txn|
+				txn.commit
 			end
 		end
 	end
@@ -74,7 +69,9 @@ describe "PG::EM::Client::Helper#db_transaction" do
 			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
 			expect_query("COMMIT")
 			in_transaction do |txn|
-				txn.insert("foo", :bar => 'baz')
+				txn.insert("foo", :bar => 'baz') do
+					txn.commit
+				end
 			end
 		end
 	end
@@ -85,7 +82,9 @@ describe "PG::EM::Client::Helper#db_transaction" do
 			expect_query_failure('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
 			expect_query("ROLLBACK")
 			in_transaction do |txn|
-				txn.insert("foo", :bar => 'baz')
+				txn.insert("foo", :bar => 'baz') do
+					txn.commit
+				end
 			end
 		end
 	end
@@ -101,7 +100,9 @@ describe "PG::EM::Client::Helper#db_transaction" do
 			in_transaction do |txn|
 				txn.insert("foo", :bar => 'baz') do
 					txn.insert("foo", :bar => 'wombat') do
-						txn.insert("foo", :bar => 'quux')
+						txn.insert("foo", :bar => 'quux') do
+							txn.commit
+						end
 					end
 				end
 			end
@@ -124,7 +125,9 @@ describe "PG::EM::Client::Helper#db_transaction" do
 			in_transaction do |txn|
 				txn.insert("foo", :bar => 'baz') do
 					txn.insert("foo", :bar => 'wombat') do
-						txn.insert("foo", :bar => 'quux')
+						txn.insert("foo", :bar => 'quux') do
+							txn.commit
+						end
 					end
 				end
 			end
@@ -137,8 +140,9 @@ describe "PG::EM::Client::Helper#db_transaction" do
 			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
 			expect_query("ROLLBACK")
 			in_transaction do |txn|
-				txn.insert("foo", :bar => 'baz')
-				txn.rollback("Because I can")
+				txn.insert("foo", :bar => 'baz') do
+					txn.rollback("Because I can")
+				end
 			end
 		end
 	end

@@ -7,12 +7,15 @@ class PG::EM::Client::Helper::Transaction
 	def initialize(conn, opts, &blk)
 		@conn       = conn
 		@opts       = opts
-		@active     = true
+		# This can be `nil` if the txn is in progress, or it will be
+		# true or false to indicate success/failure of the txn
+		@committed  = nil
 
 		DeferrableGroup.new do |dg|
 			@dg = dg
 
-			conn.exec_defer("BEGIN").callback do
+			trace_query("BEGIN")
+			@conn.exec_defer("BEGIN").callback do
 				begin
 					blk.call(self)
 				rescue StandardError => ex
@@ -20,9 +23,10 @@ class PG::EM::Client::Helper::Transaction
 				end
 			end.errback { |ex| rollback(ex) }.tap { |df| @dg.add(df) }
 		end.callback do
-			rollback(RuntimeError.new("txn.commit was not called")) if @active
+			rollback(RuntimeError.new("txn.commit was not called")) unless @committed
+			self.succeed
 		end.errback do |ex|
-			rollback(ex)
+			self.fail(ex)
 		end
 	end
 
@@ -33,11 +37,16 @@ class PG::EM::Client::Helper::Transaction
 	# exception will be raised.
 	#
 	def commit
-		if @active
-			@conn.exec_defer("COMMIT").callback do
-				@active = false
-				self.succeed
-			end.errback { |ex| rollback(ex) }.tap { |df| @dg.add(df) }
+		if @committed.nil?
+			trace_query("COMMIT")
+			@conn.exec_defer("COMMIT").tap do |df|
+				@dg.add(df)
+			end.callback do
+				@committed = true
+				@dg.close
+			end.errback do |ex|
+				rollback(ex)
+			end
 		end
 	end
 
@@ -47,11 +56,15 @@ class PG::EM::Client::Helper::Transaction
 	# event of a database error or other exception.
 	#
 	def rollback(ex)
-		if @active
-			@conn.exec_defer("ROLLBACK") do
-				@active = false
-				self.fail(ex)
-			end.tap { |df| @dg.add(df) }
+		if @committed.nil?
+			trace_query("ROLLBACK")
+			@conn.exec_defer("ROLLBACK").tap do |df|
+				@dg.add(df)
+			end.callback do
+				@committed = false
+				@dg.fail(ex)
+				@dg.close
+			end
 		end
 	end
 
@@ -74,15 +87,22 @@ class PG::EM::Client::Helper::Transaction
 	#   specific query finishes.
 	#
 	def exec(sql, values=[], &blk)
-		unless @active
+		unless @committed.nil?
 			raise RuntimeError,
 			      "Cannot execute a query in a transaction that has been closed"
 		end
 
+		trace_query(sql, values)
 		@conn.exec_defer(sql, values).tap do |df|
 			@dg.add(df)
 			df.callback(&blk) if blk
+		end.errback do |ex|
+			rollback(ex)
 		end
 	end
 	alias_method :exec_defer, :exec
+
+	def trace_query(q, v=nil)
+		$stderr.puts "#{@conn.inspect}: #{q} #{v.inspect}" if ENV['EM_PG_TXN_TRACE']
+	end
 end
