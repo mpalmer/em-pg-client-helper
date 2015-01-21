@@ -4,18 +4,51 @@ class PG::EM::Client::Helper::Transaction
 
 	# Create a new transaction.  You shouldn't have to call this yourself;
 	# `db_transaction` should create one and pass it to your block.
-	def initialize(conn, opts, &blk)
+	#
+	# @param conn [PG::EM::Connection] The connection to execute all commands
+	#   against.  If using a connection pool, this connection needs to have
+	#   been taken out of the pool (using something like `#hold_deferred`) so
+	#   that no other concurrently-operating code can accidentally send
+	#   queries down the connection (that would be, in a word, *bad*).
+	#
+	# @param opts [Hash] Zero or more optional parameters that adjust the
+	#   initial state of the transaction.  For full details of the available
+	#   options, see {PG::EM::Client::Helper#db_transaction}.
+	#
+	# @raise [ArgumentError] If an unknown isolation level is specified.
+	#
+	def initialize(conn, opts = {}, &blk)
 		@conn       = conn
 		@opts       = opts
 		# This can be `nil` if the txn is in progress, or it will be
 		# true or false to indicate success/failure of the txn
 		@committed  = nil
-		@retryable  = false
+		@retryable  = opts[:retry]
 
 		DeferrableGroup.new do |dg|
 			@dg = dg
 
-			exec("BEGIN") do
+			begin_query = case opts[:isolation]
+				when :serializable
+					"BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE"
+				when :repeatable_read
+					"BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ"
+				when :read_committed
+					"BEGIN TRANSACTION ISOLATION LEVEL READ COMMITTED"
+				when :read_uncommitted
+					"BEGIN TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"
+				when nil
+					"BEGIN"
+				else
+					raise ArgumentError,
+					      "Unknown value for :isolation option: #{opts[:isolation].inspect}"
+			end
+
+			if opts[:deferrable]
+				begin_query += " DEFERRABLE"
+			end
+
+			exec(begin_query) do
 				begin
 					blk.call(self)
 				rescue StandardError => ex
@@ -36,18 +69,6 @@ class PG::EM::Client::Helper::Transaction
 				self.fail(ex)
 			end
 		end
-	end
-
-	# Mark the transaction as requiring the serializable isolation level.
-	#
-	# @param retryable [TrueClass, FalseClass] Whether or not the transaction
-	#   should be retried if some sort of transaction-level failure occurs.
-	#   Be careful enabling this, as the entire block will be re-run, including
-	#   any code that creates side-effects elsewhere.
-	#
-	def serializable(retryable = false, &blk)
-		@retryable = retryable
-		exec("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", &blk)
 	end
 
 	# Signal the database to commit this transaction.  You must do this

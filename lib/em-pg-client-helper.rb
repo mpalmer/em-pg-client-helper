@@ -68,6 +68,24 @@ module PG::EM::Client::Helper
 	#   the transaction to complete against, so you don't have to worry about
 	#   that, either.
 	#
+	# @param opts [Hash] Zero or more options which change the behaviour of the
+	#   transaction.
+	#
+	# @option opts [Symbol] :isolation An isolation level for the transaction.
+	#   Valid values are `:serializable`, `:repeatable_read`,
+	#   `:read_committed`, and `:read_uncommitted`.  The last two of these
+	#   are pointless to use and are included only for completeness, as
+	#   PostgreSQL's default isolation level is `:read_committed`, and
+	#   `:read_uncommitted` is equivalent to `:read_committed`.
+	#
+	# @option opts [TrueClass, FalseClass] :retry Whether or not to retry the
+	#   transaction if it fails for one of a number of transaction-internal
+	#   reasons.
+	#
+	# @option opts [TrueClass, FalseClass] :deferrable If set, enables the
+	#   `DEFERRABLE` transaction mode.  For details of what this is, see the
+	#   `SET TRANSACTION` command documentation in the PostgreSQL manual.
+	#
 	# @param blk [Proc] code which will be executed within the context of the
 	#   transaction.  This block will be passed a
 	#   {PG::EM::Client::Helper::Transaction} instance, which has methods to
@@ -77,6 +95,9 @@ module PG::EM::Client::Helper
 	# @return [EM::Deferrable] on which you can call `#callback` and
 	#   `#errback` to define what to do when the transaction succeeds or
 	#   fails, respectively.
+	#
+	# @raise [ArgumentError] If an unrecognised value for the `:isolation`
+	#   option is given.
 	#
 	# @note Due to the way that transactions detect when they are completed,
 	#   every deferrable in the scope of the transaction must be generated

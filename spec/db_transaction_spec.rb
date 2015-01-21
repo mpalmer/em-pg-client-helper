@@ -22,8 +22,8 @@ describe "PG::EM::Client::Helper#db_transaction" do
 		end
 	end
 
-	def in_transaction(&blk)
-		db_transaction(mock_conn, &blk).callback { EM.stop }.errback { EM.stop }
+	def in_transaction(*args, &blk)
+		db_transaction(mock_conn, *args, &blk).callback { EM.stop }.errback { EM.stop }
 	end
 
 	def in_em
@@ -183,22 +183,51 @@ describe "PG::EM::Client::Helper#db_transaction" do
 		end
 	end
 
+	it "uses SERIALIZABLE if we ask nicely" do
+		in_em do
+			expect_query("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+			expect_query("COMMIT")
+
+			in_transaction(:isolation => :serializable) do |txn|
+				txn.commit
+			end
+		end
+	end
+
+	it "uses REPEATABLE READ if we ask nicely" do
+		in_em do
+			expect_query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+			expect_query("COMMIT")
+
+			in_transaction(:isolation => :repeatable_read) do |txn|
+				txn.commit
+			end
+		end
+	end
+
+	it "uses DEFERRABLE if we ask nicely" do
+		in_em do
+			expect_query("BEGIN DEFERRABLE")
+			expect_query("COMMIT")
+
+			in_transaction(:deferrable => true) do |txn|
+				txn.commit
+			end
+		end
+	end
+
 	it "retries if it gets an error during the transaction" do
 		in_em do
-			expect_query("BEGIN")
-			expect_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+			expect_query("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
 			expect_query_failure('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"], PG::TRSerializationFailure.new("OMFG!"))
 			expect_query("ROLLBACK")
-			expect_query("BEGIN")
-			expect_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+			expect_query("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
 			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
 			expect_query("COMMIT")
 
-			in_transaction do |txn|
-				txn.serializable(true) do
-					txn.insert("foo", :bar => 'baz') do
-						txn.commit
-					end
+			in_transaction(:isolation => :serializable, :retry => true) do |txn|
+				txn.insert("foo", :bar => 'baz') do
+					txn.commit
 				end
 			end
 		end
@@ -206,20 +235,16 @@ describe "PG::EM::Client::Helper#db_transaction" do
 
 	it "retries if it gets an error on commit" do
 		in_em do
-			expect_query("BEGIN")
-			expect_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+			expect_query("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
 			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
 			expect_query_failure("COMMIT", [], PG::TRSerializationFailure.new("OMFG!"))
-			expect_query("BEGIN")
-			expect_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+			expect_query("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
 			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
 			expect_query("COMMIT")
 
-			in_transaction do |txn|
-				txn.serializable(true) do
-					txn.insert("foo", :bar => 'baz') do
-						txn.commit
-					end
+			in_transaction(:isolation => :serializable, :retry => true) do |txn|
+				txn.insert("foo", :bar => 'baz') do
+					txn.commit
 				end
 			end
 		end
