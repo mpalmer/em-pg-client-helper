@@ -53,11 +53,10 @@ describe "PG::EM::Client::Helper#db_transaction" do
 		end
 	end
 
-	it "rolls back if COMMIT fails" do
+	it "doesn't roll back if COMMIT fails" do
 		in_em do
 			expect_query("BEGIN")
 			expect_query_failure("COMMIT")
-			expect_query("ROLLBACK")
 			in_transaction do |txn|
 				txn.commit
 			end
@@ -187,7 +186,6 @@ describe "PG::EM::Client::Helper#db_transaction" do
 			expect_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", [])
 			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
 			expect_query_failure("COMMIT", nil, PG::TRSerializationFailure.new("OMFG!"))
-			expect_query("ROLLBACK")
 			expect_query("BEGIN")
 			expect_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", [])
 			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])

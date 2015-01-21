@@ -70,7 +70,9 @@ class PG::EM::Client::Helper::Transaction
 				@committed = true
 				@dg.close
 			end.errback do |ex|
-				rollback(ex)
+				@committed = false
+				@dg.fail(ex)
+				@dg.close
 			end
 		end
 	end
