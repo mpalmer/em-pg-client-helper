@@ -134,6 +134,30 @@ describe "PG::EM::Client::Helper#db_transaction" do
 		end
 	end
 
+	it "is robust against having an unrelated deferrable in the chain" do
+		in_em do
+			expect_query("BEGIN")
+			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ['baz'])
+			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ['wombat'])
+			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ['quux'])
+			expect_query("COMMIT")
+
+			in_transaction do |txn|
+				txn.insert("foo", :bar => 'baz') do
+					txn.insert("foo", :bar => 'wombat') do
+						df = ::EM::DefaultDeferrable.new
+						df.callback do
+							txn.insert("foo", :bar => 'quux') do
+								txn.commit
+							end
+						end
+						df.succeed
+					end
+				end
+			end
+		end
+	end
+
 	it "doesn't COMMIT if we rolled back" do
 		in_em do
 			expect_query("BEGIN")
