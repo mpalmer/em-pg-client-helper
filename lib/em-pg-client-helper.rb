@@ -47,6 +47,106 @@ module PG::EM::Client::Helper
 		db.exec_defer(*insert_sql(tbl, params))
 	end
 
+	# @macro upsert_params
+	#
+	#   @param tbl [#to_s] The name of the table on which to operate.
+	#
+	#   @param key [#to_s, Array<#to_s>] A field (or list of fields) which
+	#     are the set of values that uniquely identify the record to be
+	#     updated, if it exists.  You only need to specify the field names
+	#     here, as the values which will be used in the query will be taken
+	#     from the `data`.
+	#
+	#   @param data [Hash<#to_s, Object>] The fields and values to insert into
+	#     the database, or to set in the existing record.
+	#
+	#   @raise [ArgumentError] if a field is specified in `key` but which
+	#     does not exist in `data`.
+	#
+	#
+	# An "upsert" is a kind of crazy hybrid "update if the record exists,
+	# insert it if it doesn't" query.  It isn't part of the SQL standard,
+	# but it is such a common idiom that we're keen to support it.
+	#
+	# The trick is that it's actually two queries in one.  We try to do an
+	# `UPDATE` first, and if that doesn't actually update anything, then we
+	# try an `INSERT`.  Since it is two separate queries, though, there is still
+	# a small chance that the query will fail with a `PG::UniqueViolation`, so
+	# your code must handle that.
+	#
+	# @!macro upsert_params
+	#
+	# @return [Array<String, Array<Object>>] A two-element array, the first
+	#   of which is a string containing the literal SQL to be executed, while
+	#   the second element is an array containing the values, in order
+	#   corresponding to the placeholders in the SQL.
+	#
+	def upsert_sql(tbl, key, data)
+		tbl = quote_identifier(tbl)
+		insert_keys = data.keys.map { |k| quote_identifier(k.to_s) }
+		unique_keys = (key.is_a?(Array) ? key : [key])
+		unique_keys.map! { |k| quote_identifier(k.to_s) }
+		update_keys = insert_keys - unique_keys
+
+		unless (bad_keys = unique_keys - insert_keys).empty?
+			raise ArgumentError,
+			      "These field(s) were mentioned in the key list, but were not in the data set: #{bad_keys.inspect}"
+		end
+
+		values = data.values
+		# field-to-placeholder mapping
+		i = 0
+		fp_map = Hash[insert_keys.map { |k| i += 1; [k, "$#{i}"] }]
+
+		update_values = update_keys.map { |k| "#{k}=#{fp_map[k]}" }.join(',')
+		select_values = unique_keys.map { |k| "#{k}=#{fp_map[k]}" }.join(' AND ')
+		update_query = "UPDATE #{tbl} SET #{update_values} WHERE #{select_values} RETURNING *"
+
+		insert_query = "INSERT INTO #{tbl} (#{fp_map.keys.join(',')}) SELECT #{fp_map.values.join(',')}"
+
+		["WITH upsert AS (#{update_query}) #{insert_query} WHERE NOT EXISTS (SELECT * FROM upsert)",
+		 data.values
+		]
+	end
+
+	# Run an upsert query.
+	#
+	# @see #upsert_sql
+	#
+	# Apply an upsert (update-or-insert) against a given database connection or
+	# connection pool, handling the (rarely needed) unique violation that can
+	# result.
+	#
+	# @param db [PG::EM::Client, PG::EM::ConnectionPool] the connection
+	#   against which all database operations will be run.
+	#
+	# @!macro upsert_params
+	#
+	# @return [EM::Deferrable] the deferrable in which the query is being
+	#   called; this means you should attach the code to run after the query
+	#   completes with `#callback`, and you can attach an error handler with
+	#   `#errback` if you like.
+	#
+	def db_upsert(db, tbl, key, data)
+		q = upsert_sql(tbl, key, data)
+
+		::EM::DefaultDeferrable.new.tap do |df|
+			db.exec_defer(*q).callback do
+				df.succeed
+			end.errback do |ex|
+				if ex.is_a?(PG::UniqueViolation)
+					db.exec_defer(*q).callback do
+						df.succeed
+					end.errback do |ex|
+						df.fail(ex)
+					end
+				else
+					df.fail(ex)
+				end
+			end
+		end
+	end
+
 	# Execute code in a transaction.
 	#
 	# Calling this method opens up a transaction (by executing `BEGIN`), and

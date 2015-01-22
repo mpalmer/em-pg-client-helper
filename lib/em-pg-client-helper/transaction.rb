@@ -117,6 +117,19 @@ class PG::EM::Client::Helper::Transaction
 		exec(*insert_sql(tbl, params), &blk)
 	end
 
+	# Run an upsert inside a transaction.
+	#
+	# @see {PG::EM::Client::Helper#upsert_sql} for all the parameters.
+	#
+	# @return [EM::Deferrable]
+	def upsert(*args, &blk)
+		db_upsert(@conn, *args).tap do |df|
+			df.callback(&blk) if block_given?
+		end.errback do |ex|
+			rollback(ex)
+		end
+	end
+
 	# Execute an arbitrary block of SQL in `sql` within the transaction.
 	# If you need to pass dynamic values to the query, those should be
 	# given in `values`, and referenced in `sql` as `$1`, `$2`, etc.  The

@@ -5,6 +5,7 @@ Spork.prefork do
 	Bundler.setup(:default, :development, :test)
 	require 'rspec/core'
 	require 'rspec/mocks'
+	require 'txn_helper'
 
 	require 'pry'
 
@@ -15,6 +16,8 @@ Spork.prefork do
 		config.expect_with :rspec do |c|
 			c.syntax = :expect
 		end
+
+		config.include TxnHelper
 	end
 end
 
