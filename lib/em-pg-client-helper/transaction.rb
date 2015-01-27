@@ -122,6 +122,9 @@ class PG::EM::Client::Helper::Transaction
 	# @see {PG::EM::Client::Helper#upsert_sql} for all the parameters.
 	#
 	# @return [EM::Deferrable]
+	#
+	# @yield [PG::Result] the row of data that has been inserted/updated.
+	#
 	def upsert(*args, &blk)
 		db_upsert(@conn, *args).tap do |df|
 			df.callback(&blk) if block_given?

@@ -74,6 +74,9 @@ module PG::EM::Client::Helper
 	# a small chance that the query will fail with a `PG::UniqueViolation`, so
 	# your code must handle that.
 	#
+	# As an added bonus, the SQL that this method generates will, when executed,
+	# return the complete row that has been inserted or updated.
+	#
 	# @!macro upsert_params
 	#
 	# @return [Array<String, Array<Object>>] A two-element array, the first
@@ -102,9 +105,14 @@ module PG::EM::Client::Helper
 		select_values = unique_keys.map { |k| "#{k}=#{fp_map[k]}" }.join(' AND ')
 		update_query = "UPDATE #{tbl} SET #{update_values} WHERE #{select_values} RETURNING *"
 
-		insert_query = "INSERT INTO #{tbl} (#{fp_map.keys.join(',')}) SELECT #{fp_map.values.join(',')}"
+		insert_query = "INSERT INTO #{tbl} (#{fp_map.keys.join(',')}) " +
+		               "SELECT #{fp_map.values.join(',')}"
 
-		["WITH update AS (#{update_query}), insert AS (#{insert_query} WHERE NOT EXISTS (SELECT * FROM update) RETURNING *) SELECT * FROM update UNION ALL SELECT * FROM insert",
+		["WITH update_query AS (#{update_query}), " +
+		      "insert_query AS (#{insert_query} " +
+		        "WHERE NOT EXISTS (SELECT * FROM update_query) " +
+		        "RETURNING *) " +
+		      "SELECT * FROM update_query UNION SELECT * FROM insert_query",
 		 data.values
 		]
 	end
@@ -126,6 +134,8 @@ module PG::EM::Client::Helper
 	#   called; this means you should attach the code to run after the query
 	#   completes with `#callback`, and you can attach an error handler with
 	#   `#errback` if you like.
+	#
+	# @yield [PG::Result] the row of data that has been inserted/updated.
 	#
 	def db_upsert(db, tbl, key, data)
 		q = upsert_sql(tbl, key, data)
