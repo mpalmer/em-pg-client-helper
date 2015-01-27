@@ -104,7 +104,7 @@ module PG::EM::Client::Helper
 
 		insert_query = "INSERT INTO #{tbl} (#{fp_map.keys.join(',')}) SELECT #{fp_map.values.join(',')}"
 
-		["WITH upsert AS (#{update_query}) #{insert_query} WHERE NOT EXISTS (SELECT * FROM upsert)",
+		["WITH update AS (#{update_query}), insert AS (#{insert_query} WHERE NOT EXISTS (SELECT * FROM update) RETURNING *) SELECT * FROM update UNION ALL SELECT * FROM insert",
 		 data.values
 		]
 	end
@@ -131,12 +131,12 @@ module PG::EM::Client::Helper
 		q = upsert_sql(tbl, key, data)
 
 		::EM::DefaultDeferrable.new.tap do |df|
-			db.exec_defer(*q).callback do
-				df.succeed
+			db.exec_defer(*q).callback do |r|
+				df.succeed(r)
 			end.errback do |ex|
 				if ex.is_a?(PG::UniqueViolation)
-					db.exec_defer(*q).callback do
-						df.succeed
+					db.exec_defer(*q).callback do |r|
+						df.succeed(r)
 					end.errback do |ex|
 						df.fail(ex)
 					end
