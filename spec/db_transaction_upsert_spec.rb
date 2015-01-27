@@ -4,9 +4,9 @@ describe "PG::EM::Client::Helper#db_transaction#upsert" do
 	let(:mock_conn) { double(PG::EM::Client) }
 	let(:mock_query) do
 		[
-		 'WITH upsert AS (UPDATE "foo" SET "bar"=$1 WHERE "wombat"=$2 RETURNING *) ' +
-		 'INSERT INTO "foo" ("bar","wombat") SELECT $1,$2 ' +
-		 'WHERE NOT EXISTS (SELECT * FROM upsert)',
+		 'WITH update_query AS (UPDATE "foo" SET "bar"=$1 WHERE "wombat"=$2 RETURNING *), ' +
+		 'insert_query AS (INSERT INTO "foo" ("bar","wombat") SELECT $1,$2 WHERE NOT EXISTS (SELECT * FROM update_query) RETURNING *) ' +
+		 'SELECT * FROM update_query UNION SELECT * FROM insert_query',
 		 ["baz", 42]
 		]
 	end
