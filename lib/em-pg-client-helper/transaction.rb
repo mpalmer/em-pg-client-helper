@@ -1,3 +1,6 @@
+# Represents a database transaction, and contains all of the methods which
+# can be used to execute queries within the transaction connection.
+#
 class PG::EM::Client::Helper::Transaction
 	include ::PG::EM::Client::Helper
 	include ::EventMachine::Deferrable
@@ -139,7 +142,7 @@ class PG::EM::Client::Helper::Transaction
 	# given block will be called if and when the query completes
 	# successfully.
 	#
-	# @returns [EM::Deferrable] A deferrable that will be completed when this
+	# @return [EM::Deferrable] A deferrable that will be completed when this
 	#   specific query finishes.
 	#
 	def exec(sql, values=[], &blk)
@@ -158,6 +161,8 @@ class PG::EM::Client::Helper::Transaction
 	end
 	alias_method :exec_defer, :exec
 
+	# Trace queries as they happen, if `ENV['EM_PG_TXN_TRACE']` is set.
+	#
 	def trace_query(q, v=nil)
 		$stderr.puts "#{@conn.inspect}: #{q} #{v.inspect}" if ENV['EM_PG_TXN_TRACE']
 	end

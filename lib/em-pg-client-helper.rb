@@ -47,7 +47,7 @@ module PG::EM::Client::Helper
 		db.exec_defer(*insert_sql(tbl, params))
 	end
 
-	# @macro upsert_params
+	# @!macro upsert_params
 	#
 	#   @param tbl [#to_s] The name of the table on which to operate.
 	#
@@ -62,8 +62,7 @@ module PG::EM::Client::Helper
 	#
 	#   @raise [ArgumentError] if a field is specified in `key` but which
 	#     does not exist in `data`.
-	#
-	#
+
 	# An "upsert" is a kind of crazy hybrid "update if the record exists,
 	# insert it if it doesn't" query.  It isn't part of the SQL standard,
 	# but it is such a common idiom that we're keen to support it.
@@ -77,7 +76,7 @@ module PG::EM::Client::Helper
 	# As an added bonus, the SQL that this method generates will, when executed,
 	# return the complete row that has been inserted or updated.
 	#
-	# @!macro upsert_params
+	# @macro upsert_params
 	#
 	# @return [Array<String, Array<Object>>] A two-element array, the first
 	#   of which is a string containing the literal SQL to be executed, while
@@ -128,7 +127,7 @@ module PG::EM::Client::Helper
 	# @param db [PG::EM::Client, PG::EM::ConnectionPool] the connection
 	#   against which all database operations will be run.
 	#
-	# @!macro upsert_params
+	# @macro upsert_params
 	#
 	# @return [EM::Deferrable] the deferrable in which the query is being
 	#   called; this means you should attach the code to run after the query
