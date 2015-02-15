@@ -3,7 +3,7 @@ nice solution to the problem of accessing a PostgreSQL database from within
 [EventMachine](http://rubyeventmachine.com/), it is somewhat... spartan. 
 ORMs have spoiled us somewhat, and so the appeal of hand-writing SQL and
 dealing with the finer details of error handling has faded.  Hence the
-creation of the `EM::PG::Client::Helper` module.  It contains a collection
+creation of the {PG::EM::Client::Helper} module.  It contains a collection
 of useful helper methods that make it somewhat easier to perform common
 operations against PgSQL databases.
 
@@ -32,7 +32,7 @@ Then add this line in any classes you wish to use the helper methods in:
 
     include PG::EM::Client::Helper
 
-The module documentation for EM::PG::Client::Helper has more information on
+The module documentation for {PG::EM::Client::Helper} has more information on
 the available methods and how to use them.
 
 
