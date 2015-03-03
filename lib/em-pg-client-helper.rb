@@ -1,11 +1,159 @@
 require 'pg/em'
 require 'pg/em/connection_pool'
+require 'sequel'
 
 # Some helper methods to make working with em-pg-client slightly less like
 # trying to build a house with a packet of seeds and a particle
 # accelerator...  backwards.
 #
 module PG::EM::Client::Helper
+	# Sequel-based SQL generation.
+	#
+	# While we could spend a lot of time writing code to generate various
+	# kinds of SQL "by hand", it would be wasted effort, since the Sequel
+	# database toolkit gives us a complete, and *extremely* powerful, SQL
+	# generation system, which is already familiar to a great many
+	# programmers (or, at least, many great programmers).
+	#
+	# Hence, rather than reinvent the wheel, we simply drop Sequel in.
+	#
+	# Anything you can do with an instance of `Sequel::Database` that
+	# produces a single SQL query, you can almost certainly do with this
+	# method.
+	#
+	# Usage is quite simple: calling this method will yield a pseudo-database
+	# object to the block you pass.  You can then call whatever methods you
+	# like against the database object, and when you're done and the block
+	# you passed completes, we'll return the SQL that Sequel generated.
+	#
+	# @yield [sqldb] to allow you to call whatever Sequel methods you like to
+	#   generate the desired SQL.
+	#
+	# @yieldparam [Sequel::Database] call whatever you like against this to
+	#   cause Sequel to generate the result you want.
+	#
+	# @return [String] the generated SQL.
+	#
+	# @raise [PG::EM::Client::Helper::BadSequelError] if your calls against
+	#   the yielded database object would result in no SQL being generated,
+	#   or more than one SQL statement.
+	#
+	# @example A simple select
+	#   sequel(db) do |sqldb|
+	#     sqldb[:artists]
+	#   end
+	#   # => "SELECT * FROM artists"
+	#
+	# @example Delete some rows
+	#   sequel(db) do |sqldb|
+	#     sqldb[:foo].where { { col.sql_number % 3 => 0 } }.delete
+	#   end.callback do |res|
+	#     logger.info "Deleted #{res.cmd_tuples}"
+	#   end
+	#   # => "DELETE FROM foo WHERE col % 3 = 0"
+	#
+	# @example A very complicated select
+	#   sequel do |sqldb|
+	#     sqldb[:posts].select_all(:posts).
+	#       select_append(
+	#         Sequel.
+	#           function(:array_agg, :campaigns__name).
+	#           distinct.
+	#           as(:campaigns_names)
+	#         ).
+	#       join(:posts_terms, :post_id => :posts__id).
+	#       join(:terms, :id => :posts_terms__term_id).
+	#       join(:categories_terms, :term_id => :terms__id).
+	#       join(:campaigns_categories, :category_id => :categories_terms__category_id).
+	#       join(:campaigns, :id => :campaigns_categories__campaign_id).
+	#       group_by(:posts__id)
+	#   end
+	#   # ... you don't want to know.
+	#
+	def sequel_sql
+		sqldb = Sequel.connect("mock://postgres")
+		ret = yield sqldb if block_given?
+		sqls = sqldb.sqls
+
+		if sqls.empty?
+			sqls = [ret.sql] rescue []
+		end
+
+		if sqls.empty?
+			raise PG::EM::Client::Helper::BadSequelError,
+			      "Your block did not generate an SQL statement"
+		end
+
+		if sqls.length > 1
+			raise PG::EM::Client::Helper::BadSequelError,
+			      "Your block generated multiple SQL statements"
+		end
+
+		sqls.first
+	end
+
+	# Generate Sequel, and run it against the database connection provided.
+	#
+	# This is the all-singing variant of {#sequel_sql} -- in addition to
+	# generating the SQL, we also run the result against the database
+	# connection you pass.
+	#
+	# @see {#sequel_sql}
+	#
+	# @yield [sqldb] to allow you to call whatever sequel methods you like to
+	#   generate the desired SQL.
+	#
+	# @yieldparam [Sequel::Database] call whatever you like against this to
+	#   cause Sequel to generate the result you want.
+	#
+	# @return [EM::Deferrable] the callbacks attached to this deferrable will
+	#   receive a `PG::Result` when the query completes successfully, or else
+	#   the errbacks on this deferrable will be called in the event of an
+	#   error.
+	#
+	# @raise [PG::EM::Client::Helper::BadSequelError] if your calls against
+	#   the yielded database object would result in no SQL being generated,
+	#   or more than one SQL statement.
+	#
+	# @example A simple select
+	#   sequel(db) do |sqldb|
+	#     sqldb[:artists]
+	#   end.callback do |res|
+	#     ...
+	#   end.errback do |ex|
+	#     logger.error "Query failed (#{ex.class}): #{ex.message}"
+	#   end
+	#
+	# @example A very complicated select
+	#   sequel do |sqldb|
+	#     sqldb[:posts].select_all(:posts).
+	#       select_append(
+	#         Sequel.
+	#           function(:array_agg, :campaigns__name).
+	#           distinct.
+	#           as(:campaigns_names)
+	#         ).
+	#       join(:posts_terms, :post_id => :posts__id).
+	#       join(:terms, :id => :posts_terms__term_id).
+	#       join(:categories_terms, :term_id => :terms__id).
+	#       join(:campaigns_categories, :category_id => :categories_terms__category_id).
+	#       join(:campaigns, :id => :campaigns_categories__campaign_id).
+	#       group_by(:posts__id)
+	#   end.callback do |res|
+	#     ...
+	#   end
+	#
+	# @example Delete some rows
+	#   sequel(db) do |sqldb|
+	#     sqldb[:foo].where { { col.sql_number % 3 => 0 } }.delete
+	#   end.callback do |res|
+	#     logger.info "Deleted #{res.cmd_tuples}"
+	#   end
+	#
+	def db_sequel(db, &blk)
+		db.exec_defer(sequel_sql(&blk))
+	end
+
 	# Generate SQL for an insert statement into `tbl`, with the fields and
 	# data given by the keys and values, respectively, of `params`.  Returns
 	# a two-element array consisting of the parameterised SQL as the first
@@ -235,6 +383,13 @@ module PG::EM::Client::Helper
 	def quote_identifier(id)
 		"\"#{id.gsub(/"/, '""')}\""
 	end
+
+	# Indicates that the sequel mock-database was not manipulated in such a way
+	# as to produce exactly one SQL statement.
+	#
+	# @see {#sequel_sql}
+	#
+	class BadSequelError < StandardError; end
 end
 
 require 'em-pg-client-helper/transaction'

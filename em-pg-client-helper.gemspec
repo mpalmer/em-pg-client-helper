@@ -15,8 +15,9 @@ Gem::Specification.new do |s|
 	s.extra_rdoc_files = ["README.md"]
 	s.files = `git ls-files`.split("\n")
 
+	s.add_runtime_dependency "em-pg-client",     "~> 0.3"
 	s.add_runtime_dependency "git-version-bump", "~> 0.10"
-	s.add_runtime_dependency "em-pg-client", "~> 0.3"
+	s.add_runtime_dependency "sequel",           "~> 4.0"
 
 	s.add_development_dependency 'bundler'
 	s.add_development_dependency 'eventmachine'

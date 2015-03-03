@@ -111,6 +111,17 @@ class PG::EM::Client::Helper::Transaction
 		end
 	end
 
+	# Generate SQL statements via Sequel, and run the result against the
+	# database.  Very chic.
+	#
+	# @see {PG::EM::Client::Helper#sequel_sql}
+	#
+	# @return [EM::Deferrable]
+	#
+	def sequel(&blk)
+		exec(sequel_sql(&blk))
+	end
+
 	# Insert a row of data into the database table `tbl`, using the keys
 	# from the `params` hash as the field names, and the values from the
 	# `params` hash as the field data.  Once the query has completed,
