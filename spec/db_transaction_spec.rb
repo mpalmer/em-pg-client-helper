@@ -219,4 +219,21 @@ describe "PG::EM::Client::Helper#db_transaction" do
 			end
 		end
 	end
+
+	it "doesn't rollback back after a failed INSERT with autorollback = false" do
+		in_em do
+			expect_query("BEGIN")
+			expect_query_failure('INSERT INTO "foo" ("bar") VALUES ($1)', ["baz"])
+			expect_query('INSERT INTO "foo" ("bar") VALUES ($1)', ["wombat"])
+			expect_query("COMMIT")
+			in_transaction do |txn|
+				txn.autorollback_on_error = false
+				txn.insert("foo", :bar => 'baz').errback do
+					txn.insert("foo", :bar => 'wombat') do
+						txn.commit
+					end
+				end
+			end
+		end
+	end
 end

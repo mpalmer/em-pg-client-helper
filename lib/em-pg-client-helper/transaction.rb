@@ -21,12 +21,13 @@ class PG::EM::Client::Helper::Transaction
 	# @raise [ArgumentError] If an unknown isolation level is specified.
 	#
 	def initialize(conn, opts = {}, &blk)
-		@conn       = conn
-		@opts       = opts
+		@conn                  = conn
+		@opts                  = opts
 		# This can be `nil` if the txn is in progress, or it will be
 		# true or false to indicate success/failure of the txn
-		@committed  = nil
-		@retryable  = opts[:retry]
+		@committed             = nil
+		@retryable             = opts[:retry]
+		@autorollback_on_error = true
 
 		DeferrableGroup.new do |dg|
 			@dg = dg
@@ -111,6 +112,18 @@ class PG::EM::Client::Helper::Transaction
 		end
 	end
 
+	# Manage the "rollback on the failure of a single query" behaviour.
+	#
+	# The default behaviour of a transaction, when a query fails, is for
+	# the transaction to automatically be rolled back and the rest of the
+	# statements to not be executed.  In **ALMOST** every case, this is the
+	# correct behaviour.  However, there are some corner cases in which you
+	# want to be able to avoid this behaviour, and will manually react to
+	# the transaction failure in some way.  In that case, you can set this
+	# to `false` and the transaction will not automatically fail.
+	#
+	attr_accessor :autorollback_on_error
+
 	# Generate SQL statements via Sequel, and run the result against the
 	# database.  Very chic.
 	#
@@ -167,7 +180,7 @@ class PG::EM::Client::Helper::Transaction
 			@dg.add(df)
 			df.callback(&blk) if blk
 		end.errback do |ex|
-			rollback(ex)
+			rollback(ex) if @autorollback_on_error
 		end
 	end
 	alias_method :exec_defer, :exec
