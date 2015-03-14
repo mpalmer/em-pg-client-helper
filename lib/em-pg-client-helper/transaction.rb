@@ -5,6 +5,8 @@ class PG::EM::Client::Helper::Transaction
 	include ::PG::EM::Client::Helper
 	include ::EventMachine::Deferrable
 
+	class ClosedError < StandardError; end
+
 	# Create a new transaction.  You shouldn't have to call this yourself;
 	# `db_transaction` should create one and pass it to your block.
 	#
@@ -169,7 +171,7 @@ class PG::EM::Client::Helper::Transaction
 	#
 	def exec(sql, values=[], &blk)
 		if @finished
-			raise RuntimeError,
+			raise ClosedError,
 			      "Cannot execute a query in a transaction that has been closed"
 		end
 
