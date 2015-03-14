@@ -28,6 +28,7 @@ class PG::EM::Client::Helper::Transaction
 		@finished              = nil
 		@retryable             = opts[:retry]
 		@autorollback_on_error = true
+		@savepoint_stack       = []
 
 		DeferrableGroup.new do |dg|
 			@dg = dg
@@ -89,9 +90,8 @@ class PG::EM::Client::Helper::Transaction
 			end.callback do
 				@finished = true
 				@dg.close
-			end.errback do |ex|
+			end.errback do
 				@finished = true
-				@dg.fail(ex)
 				@dg.close
 			end
 		end
@@ -104,10 +104,18 @@ class PG::EM::Client::Helper::Transaction
 	#
 	def rollback(ex)
 		unless @finished
-			exec("ROLLBACK") do
-				@finished = true
-				@dg.fail(ex)
+			if @savepoint_stack.empty?
+				exec("ROLLBACK") do
+					@finished = true
+					@dg.fail(ex)
+					@dg.close
+				end
+			else
+				sp = @savepoint_stack.pop
+				exec("ROLLBACK TO \"#{sp[:savepoint]}\"")
+				sp[:deferrable].fail(ex)
 				@dg.close
+				@dg = sp[:parent_deferrable_group]
 			end
 		end
 	end
@@ -122,7 +130,49 @@ class PG::EM::Client::Helper::Transaction
 	# the transaction failure in some way.  In that case, you can set this
 	# to `false` and the transaction will not automatically fail.
 	#
+	# Given that pretty much the only thing you can do when a query fails,
+	# other than abort the transaction, is to rollback to a savepoint, you
+	# might want to look at {#savepoint} before you try using this.
+	#
 	attr_accessor :autorollback_on_error
+
+	# Setup a "savepoint" within the transaction.
+	#
+	# A savepoint is, as the name suggests, kinda like a "saved game", in an
+	# SQL transaction.  If a query fails within a transaction, normally all
+	# you can do is rollback and abort the entire transaction.  Savepoints
+	# give you another option: roll back to the savepoint, and try again.
+	#
+	# So, that's what this method does.  Inside of the block passed to
+	# `#savepoint`, if any query fails, instead of rolling back the entire
+	# transaction, we instead only rollback to the savepoint, and execution
+	# continues by executing the `errback` callbacks defined on the savepoint
+	# deferrable.
+	#
+	# @return [EM::Deferrable]
+	#
+	def savepoint(&blk)
+		savepoint = SecureRandom.uuid
+		parent_dg = @dg
+		DeferrableGroup.new do |dg|
+			@dg = dg
+
+			dg.callback do
+				@dg = parent_dg
+				@dg.close
+			end
+
+			exec("SAVEPOINT \"#{savepoint}\"").tap do |df|
+				@savepoint_stack << { :savepoint => savepoint,
+				                      :deferrable => df,
+				                      :parent_deferrable_group => parent_dg
+				                    }
+
+				df.callback(&blk) if blk
+			end
+		end
+	end
+
 
 	# Generate SQL statements via Sequel, and run the result against the
 	# database.  Very chic.
