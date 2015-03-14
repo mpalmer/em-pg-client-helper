@@ -229,6 +229,8 @@ module PG::EM::Client::Helper
 	#   could not be completed, the deferrable will fail (`#errback`) with the
 	#   exception.
 	#
+	# @since 2.0.0
+	#
 	def db_bulk_insert(db, tbl, columns, rows, &blk)
 		EM::Completion.new.tap do |df|
 			df.callback(&blk) if blk

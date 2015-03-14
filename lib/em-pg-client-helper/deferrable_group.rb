@@ -7,6 +7,11 @@
 class PG::EM::Client::Helper::DeferrableGroup
 	include ::EventMachine::Deferrable
 
+	# Raised when an attempt is made to add a deferrable to a group on
+	# which {#close} has already been called.
+	#
+	# @since 2.0.0
+	#
 	class ClosedError < StandardError; end
 
 	# Create a new deferrable group.

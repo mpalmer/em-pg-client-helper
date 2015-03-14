@@ -7,6 +7,11 @@ class PG::EM::Client::Helper::Transaction
 	include ::PG::EM::Client::Helper
 	include ::EventMachine::Deferrable
 
+	# Raised when you attempt to execute a query in a transaction which has
+	# been finished (either by COMMIT or ROLLBACK).
+	#
+	# @since 2.0.0
+	#
 	class ClosedError < StandardError; end
 
 	# Create a new transaction.  You shouldn't have to call this yourself;
@@ -137,6 +142,8 @@ class PG::EM::Client::Helper::Transaction
 	# other than abort the transaction, is to rollback to a savepoint, you
 	# might want to look at {#savepoint} before you try using this.
 	#
+	# @since 2.0.0
+	#
 	attr_accessor :autorollback_on_error
 
 	# Setup a "savepoint" within the transaction.
@@ -153,6 +160,8 @@ class PG::EM::Client::Helper::Transaction
 	# deferrable.
 	#
 	# @return [EM::Deferrable]
+	#
+	# @since 2.0.0
 	#
 	def savepoint(&blk)
 		savepoint = SecureRandom.uuid
@@ -225,6 +234,8 @@ class PG::EM::Client::Helper::Transaction
 	# @yield [Integer] Once the insert has completed, the number of rows that
 	#   were successfully inserted (that may be less than `rows.length` if
 	#   there were any constraint failures) will be yielded to the block.
+	#
+	# @since 2.0.0
 	#
 	def bulk_insert(tbl, columns, rows, &blk)
 		db = Sequel.connect("mock://postgres")
