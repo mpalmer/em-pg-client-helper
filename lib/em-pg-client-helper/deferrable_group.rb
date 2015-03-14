@@ -7,6 +7,8 @@
 class PG::EM::Client::Helper::DeferrableGroup
 	include ::EventMachine::Deferrable
 
+	class ClosedError < StandardError; end
+
 	# Create a new deferrable group.
 	#
 	def initialize
@@ -23,15 +25,15 @@ class PG::EM::Client::Helper::DeferrableGroup
 	#
 	# @return [EM::Deferrable] the same deferrable.
 	#
-	# @raise [RuntimeError] if you attempt to add a deferrable after the
-	#   group has been closed (that is, the `#close` method has been called),
-	#   indicating that the deferrable group doesn't have any more deferrables
-	#   to add.
+	# @raise [PG::EM::Client::Helper::DeferrableGroup::ClosedError] if you
+	#   attempt to add a deferrable after the group has been closed (that is,
+	#   the `#close` method has been called), indicating that the deferrable
+	#   group doesn't have any more deferrables to add.
 	#
 	def add(df)
 		if @closed
-			raise RuntimeError,
-			      "This deferrable group is closed."
+			raise ClosedError,
+			      "This deferrable group is closed"
 		end
 
 		@outstanding << df
