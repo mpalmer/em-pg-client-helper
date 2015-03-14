@@ -23,9 +23,16 @@ module TxnHelper
 	end
 
 	def in_em
-		EM.run do
-			EM.add_timer(0.5) { EM.stop; raise "test timeout" }
-			yield
+		begin
+			Timeout.timeout(0.5) do
+				EM.run do
+					yield
+				end
+			end
+		rescue Timeout::Error
+			EM.stop
+			raise RuntimeError,
+			      "EM test time exceeded"
 		end
 	end
 end
