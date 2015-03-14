@@ -92,6 +92,7 @@ class PG::EM::Client::Helper::Transaction
 			end.callback do
 				@finished = true
 				@dg.close
+				yield if block_given?
 			end.errback do
 				@finished = true
 				@dg.close
