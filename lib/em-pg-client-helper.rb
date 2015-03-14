@@ -76,10 +76,10 @@ module PG::EM::Client::Helper
 		sqls = sqldb.sqls
 
 		if sqls.empty?
-			sqls = [ret.sql] rescue []
+			sqls = [ret.sql] rescue ret
 		end
 
-		if sqls.empty?
+		if sqls.nil? or sqls.empty?
 			raise PG::EM::Client::Helper::BadSequelError,
 			      "Your block did not generate an SQL statement"
 		end
