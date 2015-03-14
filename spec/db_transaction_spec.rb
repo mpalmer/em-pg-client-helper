@@ -33,6 +33,20 @@ describe "PG::EM::Client::Helper#db_transaction" do
 		end
 	end
 
+	it "fails the transaction if COMMIT fails" do
+		dbl = double
+		expect(dbl).to receive(:foo)
+		expect(dbl).to_not receive(:bar)
+
+		in_em do
+			expect_query("BEGIN")
+			expect_query_failure("COMMIT")
+			in_transaction do |txn|
+				txn.commit
+			end.callback { dbl.bar }.errback { dbl.foo }
+		end
+	end
+
 	it "runs a simple INSERT correctly" do
 		in_em do
 			expect_query("BEGIN")
