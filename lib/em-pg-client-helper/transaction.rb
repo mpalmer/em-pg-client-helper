@@ -238,6 +238,8 @@ class PG::EM::Client::Helper::Transaction
 	end
 	alias_method :exec_defer, :exec
 
+	private
+
 	# Trace queries as they happen, if `ENV['EM_PG_TXN_TRACE']` is set.
 	#
 	def trace_query(q, v=nil)
