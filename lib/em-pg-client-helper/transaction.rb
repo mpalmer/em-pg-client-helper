@@ -23,9 +23,7 @@ class PG::EM::Client::Helper::Transaction
 	def initialize(conn, opts = {}, &blk)
 		@conn                  = conn
 		@opts                  = opts
-		# This can be `nil` if the txn is in progress, or it will be
-		# true or false to indicate success/failure of the txn
-		@committed             = nil
+		@finished              = nil
 		@retryable             = opts[:retry]
 		@autorollback_on_error = true
 
@@ -60,7 +58,7 @@ class PG::EM::Client::Helper::Transaction
 				end
 			end
 		end.callback do
-			rollback(RuntimeError.new("txn.commit was not called")) unless @committed
+			rollback(RuntimeError.new("txn.commit was not called")) unless @finished
 			self.succeed
 		end.errback do |ex|
 			if @retryable and [PG::TRSerializationFailure].include?(ex.class)
@@ -82,15 +80,15 @@ class PG::EM::Client::Helper::Transaction
 	# exception will be raised.
 	#
 	def commit
-		if @committed.nil?
+		unless @finished
 			trace_query("COMMIT")
 			@conn.exec_defer("COMMIT", []).tap do |df|
 				@dg.add(df)
 			end.callback do
-				@committed = true
+				@finished = true
 				@dg.close
 			end.errback do |ex|
-				@committed = false
+				@finished = true
 				@dg.fail(ex)
 				@dg.close
 			end
@@ -103,9 +101,9 @@ class PG::EM::Client::Helper::Transaction
 	# event of a database error or other exception.
 	#
 	def rollback(ex)
-		if @committed.nil?
+		unless @finished
 			exec("ROLLBACK") do
-				@committed = false
+				@finished = true
 				@dg.fail(ex)
 				@dg.close
 			end
@@ -170,7 +168,7 @@ class PG::EM::Client::Helper::Transaction
 	#   specific query finishes.
 	#
 	def exec(sql, values=[], &blk)
-		unless @committed.nil?
+		if @finished
 			raise RuntimeError,
 			      "Cannot execute a query in a transaction that has been closed"
 		end
