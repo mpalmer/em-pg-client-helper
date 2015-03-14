@@ -195,6 +195,56 @@ module PG::EM::Client::Helper
 		db.exec_defer(*insert_sql(tbl, params))
 	end
 
+	# Efficiently perform a "bulk" insert of multiple rows.
+	#
+	# When you have a large quantity of data to insert into a table, you don't
+	# want to do it one row at a time -- that's *really* inefficient.  On the
+	# other hand, if you do one giant multi-row insert statement, the insert
+	# will fail if *any* of the rows causes a constraint failure.  What to do?
+	#
+	# Well, here's our answer: try to insert all the records at once.  If that
+	# fails with a constraint violation, then split the set of records in half
+	# and try to bulk insert each of those halves.  Recurse in this fashion until
+	# you only have one record to insert.
+	#
+	# @param db [PG::EM::Client, PG::EM::ConnectionPool] the connection against
+	#   which the insert wil be run.
+	#
+	# @param tbl [#to_sym] the name of the table into which you wish to insert
+	#   your data.
+	#
+	# @param columns [Array<#to_sym>] the columns into which each record of data
+	#   will be inserted.
+	#
+	# @param rows [Array<Array<Object>>] the values to insert.  Each entry in
+	#   the outermost array is a row of data; the elements of each of these inner
+	#   arrays corresponds to the column in the same position in the `columns`
+	#   array.  **NOTE**: we don't do any checking to make sure you're giving
+	#   us the correct list of values for each row.  Thus, if you give us a
+	#   row array that has too few, or too many, entries, the database will puke.
+	#
+	# @return [EM::Deferrable] the deferrable in which the query is being called;
+	#   once the bulk insert completes successfully, the deferrable will succeed
+	#   with the number of rows that were successfully inserted.  If the insert
+	#   could not be completed, the deferrable will fail (`#errback`) with the
+	#   exception.
+	#
+	def db_bulk_insert(db, tbl, columns, rows, &blk)
+		EM::Completion.new.tap do |df|
+			df.callback(&blk) if blk
+
+			db_transaction(db) do |txn|
+				txn.bulk_insert(tbl, columns, rows) do |count|
+					txn.commit do
+						df.succeed(count)
+					end
+				end
+			end.errback do |ex|
+				df.fail(ex)
+			end
+		end
+	end
+
 	# @!macro upsert_params
 	#
 	#   @param tbl [#to_s] The name of the table on which to operate.

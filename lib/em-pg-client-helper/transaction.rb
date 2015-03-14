@@ -197,6 +197,65 @@ class PG::EM::Client::Helper::Transaction
 		exec(*insert_sql(tbl, params), &blk)
 	end
 
+	# Efficiently perform a "bulk" insert of multiple rows.
+	#
+	# When you have a large quantity of data to insert into a table, you don't
+	# want to do it one row at a time -- that's *really* inefficient.  On the
+	# other hand, if you do one giant multi-row insert statement, the insert
+	# will fail if *any* of the rows causes a constraint failure.  What to do?
+	#
+	# Well, here's our answer: try to insert all the records at once.  If that
+	# fails with a constraint violation, then split the set of records in half
+	# and try to bulk insert each of those halves.  Recurse in this fashion until
+	# you only have one record to insert.
+	#
+	# @param tbl [#to_sym] the name of the table into which you wish to insert
+	#   your data.
+	#
+	# @param columns [Array<#to_sym>] the columns into which each record of data
+	#   will be inserted.
+	#
+	# @param rows [Array<Array<Object>>] the values to insert.  Each entry in
+	#   the outermost array is a row of data; the elements of each of these inner
+	#   arrays corresponds to the column in the same position in the `columns`
+	#   array.  **NOTE**: we don't do any checking to make sure you're giving
+	#   us the correct list of values for each row.  Thus, if you give us a
+	#   row array that has too few, or too many, entries, the database will puke.
+	#
+	# @yield [Integer] Once the insert has completed, the number of rows that
+	#   were successfully inserted (that may be less than `rows.length` if
+	#   there were any constraint failures) will be yielded to the block.
+	#
+	def bulk_insert(tbl, columns, rows, &blk)
+		db = Sequel.connect("mock://postgres")
+
+		# Guh hand-hacked SQL is fugly... but what I'm doing is so utterly
+		# niche that Sequel doesn't support it.
+		q_tbl = db.literal(tbl.to_sym)
+		q_cols = columns.map { |c| db.literal(c.to_sym) }
+
+		subselect = "SELECT 1 FROM #{q_tbl} AS dst WHERE " +
+		            q_cols.map { |c| "src.#{c}=dst.#{c}" }.join(" AND ")
+
+		total_rows_inserted = 0
+		DeferrableGroup.new.tap do |dg|
+			rows.each_slice(100) do |slice|
+				vals = slice.map do |row|
+				         "(" + row.map { |v| db.literal(v) }.join(", ") + ")"
+				       end.join(", ")
+				q = "INSERT INTO #{q_tbl} (SELECT * FROM (VALUES #{vals}) " +
+				    "AS src (#{q_cols.join(", ")}) WHERE NOT EXISTS (#{subselect}))"
+				df = exec(q) do |res|
+					total_rows_inserted += res.cmd_tuples
+				end
+				dg.add(df)
+			end
+			dg.callback { dg.succeed(total_rows_inserted) }
+			dg.callback(&blk) if blk
+			dg.close
+		end
+	end
+
 	# Run an upsert inside a transaction.
 	#
 	# @see {PG::EM::Client::Helper#upsert_sql} for all the parameters.
