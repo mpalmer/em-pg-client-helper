@@ -30,7 +30,7 @@ module TxnHelper
 				end
 			end
 		rescue Timeout::Error
-			EM.stop
+			EM.stop if EM.reactor_running?
 			raise RuntimeError,
 			      "EM test time exceeded"
 		end
