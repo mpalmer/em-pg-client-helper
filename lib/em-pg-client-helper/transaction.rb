@@ -1,3 +1,5 @@
+require 'securerandom'
+
 # Represents a database transaction, and contains all of the methods which
 # can be used to execute queries within the transaction connection.
 #
