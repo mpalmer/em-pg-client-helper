@@ -238,32 +238,32 @@ class PG::EM::Client::Helper::Transaction
 	# @since 2.0.0
 	#
 	def bulk_insert(tbl, columns, rows, &blk)
-		db = Sequel.connect("mock://postgres")
-
-		# Guh hand-hacked SQL is fugly... but what I'm doing is so utterly
-		# niche that Sequel doesn't support it.
-		q_tbl = db.literal(tbl.to_sym)
-		q_cols = columns.map { |c| db.literal(c.to_sym) }
-
-		subselect = "SELECT 1 FROM #{q_tbl} AS dst WHERE " +
-		            q_cols.map { |c| "src.#{c}=dst.#{c}" }.join(" AND ")
-
-		total_rows_inserted = 0
-		DeferrableGroup.new.tap do |dg|
-			rows.each_slice(100) do |slice|
-				vals = slice.map do |row|
-				         "(" + row.map { |v| db.literal(v) }.join(", ") + ")"
-				       end.join(", ")
-				q = "INSERT INTO #{q_tbl} (SELECT * FROM (VALUES #{vals}) " +
-				    "AS src (#{q_cols.join(", ")}) WHERE NOT EXISTS (#{subselect}))"
-				df = exec(q) do |res|
-					total_rows_inserted += res.cmd_tuples
+		if rows.length > 1000
+			bulk_insert(tbl, columns, rows[0..999]) do |count1|
+				bulk_insert(tbl, columns, rows[1000..-1]) do |count2|
+					blk.call(count1 + count2)
 				end
-				dg.add(df)
 			end
-			dg.callback { dg.succeed(total_rows_inserted) }
-			dg.callback(&blk) if blk
-			dg.close
+		else
+			# Guh hand-hacked SQL is fugly... but what I'm doing is so utterly
+			# niche that Sequel doesn't support it.
+			q_tbl = mock_db.literal(tbl.to_sym)
+			q_cols = columns.map { |c| mock_db.literal(c.to_sym) }
+
+			subselect = "SELECT 1 FROM #{q_tbl} AS dst WHERE " +
+							q_cols.map { |c| "src.#{c}=dst.#{c}" }.join(" AND ")
+
+			vals = rows.map do |row|
+				"(" + row.map { |v| mock_db.literal(v) }.join(", ") + ")"
+			end.join(", ")
+			q = "INSERT INTO #{q_tbl} (SELECT * FROM (VALUES #{vals}) " +
+				 "AS src (#{q_cols.join(", ")}) WHERE NOT EXISTS (#{subselect}))"
+			exec(q).tap do |df|
+				df.callback do |res|
+					df.succeed(res.cmd_tuples)
+				end
+				df.callback(&blk) if blk
+			end
 		end
 	end
 
@@ -314,5 +314,9 @@ class PG::EM::Client::Helper::Transaction
 	#
 	def trace_query(q, v=nil)
 		$stderr.puts "#{@conn.inspect}: #{q} #{v.inspect}" if ENV['EM_PG_TXN_TRACE']
+	end
+
+	def mock_db
+		@mock_db ||= Sequel.connect("mock://postgres")
 	end
 end
