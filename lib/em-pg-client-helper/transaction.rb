@@ -171,7 +171,7 @@ class PG::EM::Client::Helper::Transaction
 
 			dg.callback do
 				@dg = parent_dg
-				@dg.close
+				dg.close
 			end
 
 			exec("SAVEPOINT \"#{savepoint}\"").tap do |df|
