@@ -293,12 +293,13 @@ class PG::EM::Client::Helper::Transaction
 	#   specific query finishes.
 	#
 	def exec(sql, values=[], &blk)
+		trace_query(sql, values)
+
 		if @finished
 			raise ClosedError,
 			      "Cannot execute a query in a transaction that has been closed"
 		end
 
-		trace_query(sql, values)
 		@conn.exec_defer(sql, values).tap do |df|
 			@dg.add(df)
 			df.callback(&blk) if blk
