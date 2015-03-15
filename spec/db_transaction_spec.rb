@@ -35,15 +35,15 @@ describe "PG::EM::Client::Helper#db_transaction" do
 
 	it "fails the transaction if COMMIT fails" do
 		dbl = double
-		expect(dbl).to receive(:foo)
-		expect(dbl).to_not receive(:bar)
+		expect(dbl).to receive(:errback)
+		expect(dbl).to_not receive(:callback)
 
 		in_em do
 			expect_query("BEGIN")
 			expect_query_failure("COMMIT")
 			in_transaction do |txn|
 				txn.commit
-			end.callback { dbl.bar }.errback { dbl.foo }
+			end.callback { dbl.callback }.errback { dbl.errback }
 		end
 	end
 
