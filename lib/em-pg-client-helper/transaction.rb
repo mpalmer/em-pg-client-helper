@@ -238,7 +238,7 @@ class PG::EM::Client::Helper::Transaction
 	# @since 2.0.0
 	#
 	def bulk_insert(tbl, columns, rows, opts={}, &blk)
-		n_records = opts.fetch(:n_records, 2)
+		n_records = opts.fetch(:n_records, 100)
 		if rows.length > n_records
 			bulk_insert(tbl, columns, rows[0...n_records]) do |count1|
 				bulk_insert(tbl, columns, rows[n_records..-1]) do |count2|
