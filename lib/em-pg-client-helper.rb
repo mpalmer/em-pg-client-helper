@@ -231,12 +231,12 @@ module PG::EM::Client::Helper
 	#
 	# @since 2.0.0
 	#
-	def db_bulk_insert(db, tbl, columns, rows, &blk)
+	def db_bulk_insert(db, tbl, columns, rows, opts={}, &blk)
 		EM::Completion.new.tap do |df|
 			df.callback(&blk) if blk
 
 			db_transaction(db) do |txn|
-				txn.bulk_insert(tbl, columns, rows) do |count|
+				txn.bulk_insert(tbl, columns, rows, opts) do |count|
 					txn.commit do
 						df.succeed(count)
 					end
