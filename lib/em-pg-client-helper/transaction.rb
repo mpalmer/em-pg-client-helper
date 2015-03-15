@@ -238,31 +238,54 @@ class PG::EM::Client::Helper::Transaction
 	# @since 2.0.0
 	#
 	def bulk_insert(tbl, columns, rows, &blk)
-		if rows.length > 1000
-			bulk_insert(tbl, columns, rows[0..999]) do |count1|
-				bulk_insert(tbl, columns, rows[1000..-1]) do |count2|
-					blk.call(count1 + count2)
-				end
-			end
-		else
-			# Guh hand-hacked SQL is fugly... but what I'm doing is so utterly
-			# niche that Sequel doesn't support it.
-			q_tbl = mock_db.literal(tbl.to_sym)
-			q_cols = columns.map { |c| mock_db.literal(c.to_sym) }
+		columns.map!(&:to_sym)
 
-			subselect = "SELECT 1 FROM #{q_tbl} AS dst WHERE " +
-							q_cols.map { |c| "src.#{c}=dst.#{c}" }.join(" AND ")
+		EM::Completion.new.tap do |df|
+			@dg.add(df)
+			df.callback(&blk) if blk
 
-			vals = rows.map do |row|
-				"(" + row.map { |v| mock_db.literal(v) }.join(", ") + ")"
-			end.join(", ")
-			q = "INSERT INTO #{q_tbl} (SELECT * FROM (VALUES #{vals}) " +
-				 "AS src (#{q_cols.join(", ")}) WHERE NOT EXISTS (#{subselect}))"
-			exec(q).tap do |df|
-				df.callback do |res|
-					df.succeed(res.cmd_tuples)
+			unique_index_columns_for_table(tbl) do |indexes|
+				# Guh hand-hacked SQL is fugly... but what I'm doing is so utterly
+				# niche that Sequel doesn't support it.
+				q_tbl = usdb.literal(tbl.to_sym)
+				q_cols = columns.map { |c| usdb.literal(c) }
+
+				# If there are any unique indexes which the set of columns to
+				# be inserted into *doesn't* completely cover, we need to error
+				# out, because that will cause no rows (or, at most, one row) to
+				# be successfully inserted.  In *theory*, a unique index with all-but-one
+				# row inserted *could* work, but that would only work if every value
+				# inserted was different, but quite frankly, I think that's a wicked
+				# corner case I'm not going to go *anywhere* near.
+				#
+				unless indexes.all? { |i| (i - columns).empty? }
+					ex = ArgumentError.new("Unique index columns not covered by data columns")
+					if @autorollback_on_error
+						df.fail(ex)
+						rollback(ex)
+					else
+						df.fail(ex)
+					end
+				else
+					subselect_where = indexes.map do |idx|
+						"(" + idx.map do |c|
+							"src.#{usdb.literal(c)}=dst.#{usdb.literal(c)}"
+						end.join(" AND ") + ")"
+					end.join(" OR ")
+
+					subselect = "SELECT 1 FROM #{q_tbl} AS dst WHERE #{subselect_where}"
+
+					vals = rows.map do |row|
+						"(" + row.map { |v| usdb.literal(v) }.join(", ") + ")"
+					end.join(", ")
+					q = "INSERT INTO #{q_tbl} (SELECT * FROM (VALUES #{vals}) " +
+						 "AS src (#{q_cols.join(", ")}) WHERE NOT EXISTS (#{subselect}))"
+					exec(q) do |res|
+						df.succeed(res.cmd_tuples)
+					end
 				end
-				df.callback(&blk) if blk
+			end.errback do |ex|
+				df.fail(ex)
 			end
 		end
 	end
@@ -317,7 +340,41 @@ class PG::EM::Client::Helper::Transaction
 		$stderr.puts "#{@conn.inspect}: #{q} #{v.inspect}" if ENV['EM_PG_TXN_TRACE']
 	end
 
-	def mock_db
-		@mock_db ||= Sequel.connect("mock://postgres")
+	# The Utility Sequel Data Base.  A mock PgSQL Sequel database that we can
+	# call methods like `#literal` on, for easy quoting.
+	#
+	def usdb
+		@usdb ||= Sequel.connect("mock://postgres")
+	end
+
+	# Find the unique indexes for a table, and yield the columns in each.
+	#
+	# This is used to work out what sets of fields to match on when doing
+	# bulk inserts.
+	#
+	# @yield [Array<Array<Symbol>>] Each element in the yielded array is a
+	#   list of the fields which make up a single unique index.
+	#
+	def unique_index_columns_for_table(t)
+		q = "SELECT a.attrelid AS idxid,
+		            a.attname  AS name,
+		            (SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid) for 128)
+		               FROM pg_catalog.pg_attrdef d
+		              WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) AS default
+		       FROM pg_catalog.pg_attribute AS a
+		       JOIN pg_catalog.pg_index AS i ON a.attrelid=i.indexrelid
+		       JOIN pg_catalog.pg_class AS c ON c.oid=i.indrelid
+		      WHERE c.relname=#{usdb.literal(t.to_s)}
+		        AND a.attnum > 0
+		        AND NOT a.attisdropped
+		        AND i.indisunique"
+
+		exec(q) do |res|
+			yield(res.to_a.each_with_object(Hash.new { |h,k| h[k] = [] }) do |r, h|
+				# Skip auto-incrementing fields; they can take care of themselves
+				next if r["default"] =~ /^nextval/
+				h[r["idxid"]] << r["name"].to_sym
+			end.values)
+		end
 	end
 end
