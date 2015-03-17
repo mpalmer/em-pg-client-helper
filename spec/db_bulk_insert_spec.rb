@@ -3,7 +3,7 @@ require_relative './spec_helper'
 describe "PG::EM::Client::Helper#db_bulk_insert" do
 	let(:mock_conn) { double(PG::EM::Client) }
 	let(:fast_query) do
-		'INSERT INTO "foo" ' +
+		'INSERT INTO "foo" ("bar", "baz") ' +
 		'(SELECT * FROM (VALUES (1, \'x\'), (3, \'y\')) ' +
 		'AS src ("bar", "baz") ' +
 		'WHERE NOT EXISTS ' +

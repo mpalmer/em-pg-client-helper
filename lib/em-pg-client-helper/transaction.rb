@@ -284,7 +284,8 @@ class PG::EM::Client::Helper::Transaction
 							"(" + row.map { |v| usdb.literal(v) }.join(", ") + ")"
 						end.join(", ")
 
-						"INSERT INTO #{q_tbl} (SELECT * FROM (VALUES #{vals}) " +
+						"INSERT INTO #{q_tbl} (#{q_cols.join(", ")}) " +
+						  "(SELECT * FROM (VALUES #{vals}) " +
 						  "AS src (#{q_cols.join(", ")}) WHERE NOT EXISTS (#{subselect}))"
 					end
 				end
