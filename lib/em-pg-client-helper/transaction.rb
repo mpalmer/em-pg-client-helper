@@ -368,12 +368,11 @@ class PG::EM::Client::Helper::Transaction
 	def unique_index_columns_for_table(t)
 		q = "SELECT a.attrelid AS idxid,
 		            a.attname  AS name,
-		            (SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid) for 128)
-		               FROM pg_catalog.pg_attrdef d
-		              WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) AS default
+		            d.adsrc    AS default
 		       FROM pg_catalog.pg_attribute AS a
 		       JOIN pg_catalog.pg_index AS i ON a.attrelid=i.indexrelid
 		       JOIN pg_catalog.pg_class AS c ON c.oid=i.indrelid
+		  LEFT JOIN pg_catalog.pg_attrdef AS d ON d.adrelid=c.oid AND d.adnum=a.attnum
 		      WHERE c.relname=#{usdb.literal(t.to_s)}
 		        AND a.attnum > 0
 		        AND NOT a.attisdropped
