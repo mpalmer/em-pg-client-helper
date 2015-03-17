@@ -245,44 +245,54 @@ class PG::EM::Client::Helper::Transaction
 			df.callback(&blk) if blk
 
 			unique_index_columns_for_table(tbl) do |indexes|
-				# Guh hand-hacked SQL is fugly... but what I'm doing is so utterly
-				# niche that Sequel doesn't support it.
-				q_tbl = usdb.literal(tbl.to_sym)
-				q_cols = columns.map { |c| usdb.literal(c) }
-
-				# If there are any unique indexes which the set of columns to
-				# be inserted into *doesn't* completely cover, we need to error
-				# out, because that will cause no rows (or, at most, one row) to
-				# be successfully inserted.  In *theory*, a unique index with all-but-one
-				# row inserted *could* work, but that would only work if every value
-				# inserted was different, but quite frankly, I think that's a wicked
-				# corner case I'm not going to go *anywhere* near.
-				#
-				unless indexes.all? { |i| (i - columns).empty? }
-					ex = ArgumentError.new("Unique index columns not covered by data columns")
-					if @autorollback_on_error
-						df.fail(ex)
-						rollback(ex)
-					else
-						df.fail(ex)
+				q = if indexes.empty?
+					sequel_sql do |db|
+						db[tbl.to_sym].multi_insert_sql(columns, rows)
 					end
 				else
-					subselect_where = indexes.map do |idx|
-						"(" + idx.map do |c|
-							"src.#{usdb.literal(c)}=dst.#{usdb.literal(c)}"
-						end.join(" AND ") + ")"
-					end.join(" OR ")
+					# Guh hand-hacked SQL is fugly... but what I'm doing is so utterly
+					# niche that Sequel doesn't support it.
+					q_tbl = usdb.literal(tbl.to_sym)
+					q_cols = columns.map { |c| usdb.literal(c) }
 
-					subselect = "SELECT 1 FROM #{q_tbl} AS dst WHERE #{subselect_where}"
+					# If there are any unique indexes which the set of columns to
+					# be inserted into *doesn't* completely cover, we need to error
+					# out, because that will cause no rows (or, at most, one row) to
+					# be successfully inserted.  In *theory*, a unique index with all-but-one
+					# row inserted *could* work, but that would only work if every value
+					# inserted was different, but quite frankly, I think that's a wicked
+					# corner case I'm not going to go *anywhere* near.
+					#
+					unless indexes.all? { |i| (i - columns).empty? }
+						ex = ArgumentError.new("Unique index columns not covered by data columns")
+						if @autorollback_on_error
+							df.fail(ex)
+							rollback(ex)
+						else
+							df.fail(ex)
+						end
+					else
+						subselect_where = indexes.map do |idx|
+							"(" + idx.map do |c|
+								"src.#{usdb.literal(c)}=dst.#{usdb.literal(c)}"
+							end.join(" AND ") + ")"
+						end.join(" OR ")
 
-					vals = rows.map do |row|
-						"(" + row.map { |v| usdb.literal(v) }.join(", ") + ")"
-					end.join(", ")
-					q = "INSERT INTO #{q_tbl} (SELECT * FROM (VALUES #{vals}) " +
-						 "AS src (#{q_cols.join(", ")}) WHERE NOT EXISTS (#{subselect}))"
-					exec(q) do |res|
-						df.succeed(res.cmd_tuples)
+						subselect = "SELECT 1 FROM #{q_tbl} AS dst WHERE #{subselect_where}"
+
+						vals = rows.map do |row|
+							"(" + row.map { |v| usdb.literal(v) }.join(", ") + ")"
+						end.join(", ")
+
+						"INSERT INTO #{q_tbl} (SELECT * FROM (VALUES #{vals}) " +
+						  "AS src (#{q_cols.join(", ")}) WHERE NOT EXISTS (#{subselect}))"
 					end
+				end
+
+				exec(q) do |res|
+					df.succeed(res.cmd_tuples)
+				end.errback do |ex|
+					df.fail(ex)
 				end
 			end.errback do |ex|
 				df.fail(ex)

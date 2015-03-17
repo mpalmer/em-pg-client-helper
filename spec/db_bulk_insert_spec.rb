@@ -41,4 +41,23 @@ describe "PG::EM::Client::Helper#db_bulk_insert" do
 			end.errback { dbl.errback; EM.stop }
 		end
 	end
+
+	it "inserts multiple records without a UNIQUE index" do
+		expect(dbl = double).to receive(:results).with(2)
+		expect(dbl).to_not receive(:errback)
+
+		in_em do
+			expect_query("BEGIN")
+			expect_unique_indexes_query([])
+			expect_query('INSERT INTO "foo" ("bar", "baz") VALUES (1, \'x\'), (3, \'y\')',
+			             [], 0.001, :succeed, Struct.new(:cmd_tuples).new(2)
+			            )
+			expect_query("COMMIT")
+
+			db_bulk_insert(mock_conn, "foo", [:bar, :baz], [[1, "x"], [3, "y"]]) do |count|
+				dbl.results(count)
+				EM.stop
+			end.errback { dbl.errback; EM.stop }
+		end
+	end
 end
