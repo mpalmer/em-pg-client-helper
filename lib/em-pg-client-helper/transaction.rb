@@ -240,6 +240,13 @@ class PG::EM::Client::Helper::Transaction
 	def bulk_insert(tbl, columns, rows, &blk)
 		columns.map!(&:to_sym)
 
+		if rows.empty?
+			return EM::Completion.new.tap do |df|
+				df.callback(&blk) if blk
+				df.succeed(0)
+			end
+		end
+
 		EM::Completion.new.tap do |df|
 			@dg.add(df)
 			df.callback(&blk) if blk

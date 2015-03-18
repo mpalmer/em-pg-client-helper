@@ -2,15 +2,6 @@ require_relative './spec_helper'
 
 describe "PG::EM::Client::Helper#db_bulk_insert" do
 	let(:mock_conn) { double(PG::EM::Client) }
-	let(:fast_query) do
-		'INSERT INTO "foo" ("bar", "baz") ' +
-		'(SELECT * FROM (VALUES (1, \'x\'), (3, \'y\')) ' +
-		'AS src ("bar", "baz") ' +
-		'WHERE NOT EXISTS ' +
-		'(SELECT 1 FROM "foo" AS dst ' +
-		'WHERE (src."bar"=dst."bar" AND src."baz"=dst."baz")))'
-	end
-
 	def expect_unique_indexes_query(indexes)
 		indexes.map! do |i|
 			idxid = rand(1000000).to_s
@@ -27,12 +18,17 @@ describe "PG::EM::Client::Helper#db_bulk_insert" do
 		expect(dbl = double).to receive(:results).with(2)
 		expect(dbl).to_not receive(:errback)
 
+		query = 'INSERT INTO "foo" ("bar", "baz") ' +
+			'(SELECT * FROM (VALUES (1, \'x\'), (3, \'y\')) ' +
+			'AS src ("bar", "baz") ' +
+			'WHERE NOT EXISTS ' +
+			'(SELECT 1 FROM "foo" AS dst ' +
+			'WHERE (src."bar"=dst."bar" AND src."baz"=dst."baz")))'
+
 		in_em do
 			expect_query("BEGIN")
 			expect_unique_indexes_query([[:bar, :baz]])
-			expect_query(fast_query,
-			             [], 0.001, :succeed, Struct.new(:cmd_tuples).new(2)
-			            )
+			expect_query(query, [], 0.001, :succeed, Struct.new(:cmd_tuples).new(2))
 			expect_query("COMMIT")
 
 			db_bulk_insert(mock_conn, "foo", [:bar, :baz], [[1, "x"], [3, "y"]]) do |count|
@@ -55,6 +51,20 @@ describe "PG::EM::Client::Helper#db_bulk_insert" do
 			expect_query("COMMIT")
 
 			db_bulk_insert(mock_conn, "foo", [:bar, :baz], [[1, "x"], [3, "y"]]) do |count|
+				dbl.results(count)
+				EM.stop
+			end.errback { dbl.errback; EM.stop }
+		end
+	end
+
+	it "does nothing with an empty set of data" do
+		expect(dbl = double).to receive(:results).with(0)
+		expect(dbl).to_not receive(:errback)
+
+		in_em do
+			expect_query("BEGIN")
+			expect_query("COMMIT")
+			db_bulk_insert(mock_conn, "foo", [:bar, :baz], []) do |count|
 				dbl.results(count)
 				EM.stop
 			end.errback { dbl.errback; EM.stop }
