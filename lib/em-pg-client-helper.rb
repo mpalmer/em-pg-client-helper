@@ -197,37 +197,37 @@ module PG::EM::Client::Helper
 
 	# Efficiently perform a "bulk" insert of multiple rows.
 	#
-	# When you have a large quantity of data to insert into a table, you don't
-	# want to do it one row at a time -- that's *really* inefficient.  On the
-	# other hand, if you do one giant multi-row insert statement, the insert
-	# will fail if *any* of the rows causes a constraint failure.  What to do?
+	# When you have a large quantity of data to insert into a table, you
+	# don't want to do it one row at a time -- that's *really* inefficient.
+	# On the other hand, if you do one giant multi-row insert statement, the
+	# insert will fail if *any* of the rows causes a constraint failure.
+	# What to do?
 	#
-	# Well, here's our answer: try to insert all the records at once.  If that
-	# fails with a constraint violation, then split the set of records in half
-	# and try to bulk insert each of those halves.  Recurse in this fashion until
-	# you only have one record to insert.
+	# Well, here's our answer: try to insert all the records at once.  If
+	# that fails with a constraint violation, then split the set of records
+	# in half and try to bulk insert each of those halves.  Recurse in this
+	# fashion until you only have one record to insert.
 	#
-	# @param db [PG::EM::Client, PG::EM::ConnectionPool] the connection against
-	#   which the insert wil be run.
+	# @param db [PG::EM::Client, PG::EM::ConnectionPool] the connection
+	#   against which the insert wil be run.
 	#
-	# @param tbl [#to_sym] the name of the table into which you wish to insert
-	#   your data.
+	# @param tbl [#to_sym] see
+	#   {PG::EM::Client::Helper::Transaction#bulk_insert}.
 	#
-	# @param columns [Array<#to_sym>] the columns into which each record of data
-	#   will be inserted.
+	# @param columns [Array<#to_sym>] see
+	#   {PG::EM::Client::Helper::Transaction#bulk_insert}.
 	#
-	# @param rows [Array<Array<Object>>] the values to insert.  Each entry in
-	#   the outermost array is a row of data; the elements of each of these inner
-	#   arrays corresponds to the column in the same position in the `columns`
-	#   array.  **NOTE**: we don't do any checking to make sure you're giving
-	#   us the correct list of values for each row.  Thus, if you give us a
-	#   row array that has too few, or too many, entries, the database will puke.
+	# @param rows [Array<Array<Object>>] see
+	#   {PG::EM::Client::Helper::Transaction#bulk_insert}.
 	#
-	# @return [EM::Deferrable] the deferrable in which the query is being called;
-	#   once the bulk insert completes successfully, the deferrable will succeed
-	#   with the number of rows that were successfully inserted.  If the insert
-	#   could not be completed, the deferrable will fail (`#errback`) with the
-	#   exception.
+	# @return [EM::Deferrable] the deferrable in which the query is being
+	#   called; once the bulk insert completes successfully, the deferrable
+	#   will succeed with the number of rows that were successfully inserted.
+	#   If the insert could not be completed, the deferrable will fail
+	#   (`#errback`) with the exception.
+	#
+	# @note for details on the `tbl`, `columns`, and `rows` parameters, see
+	#   {PG::EM::Client::Helper::Transaction#bulk_insert}.
 	#
 	# @since 2.0.0
 	#

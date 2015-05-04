@@ -218,18 +218,37 @@ class PG::EM::Client::Helper::Transaction
 	# and try to bulk insert each of those halves.  Recurse in this fashion until
 	# you only have one record to insert.
 	#
-	# @param tbl [#to_sym] the name of the table into which you wish to insert
-	#   your data.
+	# @param tbl [Symbol, String] the name of the table into which you wish to insert
+	#   your data.  If provided as a Symbol, the name will be escaped,
+	#   otherwise it will be inserted into the query as-is (and may `$DEITY`
+	#   have mercy on your soul).
 	#
-	# @param columns [Array<#to_sym>] the columns into which each record of data
-	#   will be inserted.
+	#   If the symbol name has a double underscore (`__`) in it, the part to
+	#   the left of the double-underscore will be taken as a schema name, and
+	#   the part to the right will be taken as the table name.
+	#
+	# @param columns [Array<Symbol, String>] the columns into which each
+	#   record of data will be inserted.  Any element of the array which is a
+	#   symbol will be run through `Sequel::Database#literal` to escape it
+	#   into a "safe" form; elements which are Strings are inserted as-is,
+	#   and you're responsible for any escaping which may be required.
 	#
 	# @param rows [Array<Array<Object>>] the values to insert.  Each entry in
 	#   the outermost array is a row of data; the elements of each of these inner
 	#   arrays corresponds to the column in the same position in the `columns`
-	#   array.  **NOTE**: we don't do any checking to make sure you're giving
-	#   us the correct list of values for each row.  Thus, if you give us a
-	#   row array that has too few, or too many, entries, the database will puke.
+	#   array.
+	#
+	#   Due to the way the bulk insert query is constructed, some of
+	#   PostgreSQL's default casting behaviours don't work so well,
+	#   particularly around dates and times.  If you find that you're getting
+	#   errors of the form `column "foo" is of type <something> but
+	#   expression is of type text`, you'll need to explicitly cast the field
+	#   that is having problems, replacing `value` in the array with
+	#   something like `Sequel.cast(value, "timestamp without time zone")`.
+	#
+	#   **NOTE**: We don't do any checking to make sure you're providing the
+	#   correct number of elements for each row.  Thus, if you give a row
+	#   array that has too few, or too many, entries, the database will puke.
 	#
 	# @yield [Integer] Once the insert has completed, the number of rows that
 	#   were successfully inserted (that may be less than `rows.length` if
@@ -259,7 +278,7 @@ class PG::EM::Client::Helper::Transaction
 				else
 					# Guh hand-hacked SQL is fugly... but what I'm doing is so utterly
 					# niche that Sequel doesn't support it.
-					q_tbl = usdb.literal(tbl.to_sym)
+					q_tbl = usdb.literal(tbl)
 					q_cols = columns.map { |c| usdb.literal(c) }
 
 					# If there are any unique indexes which the set of columns to
