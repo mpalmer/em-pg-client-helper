@@ -71,7 +71,7 @@ module PG::EM::Client::Helper
 	#   # ... you don't want to know.
 	#
 	def sequel_sql
-		sqldb = Sequel.connect("mock://postgres")
+		sqldb = Thread.current[:em_pg_client_sequel_db] ||= Sequel.connect("mock://postgres", :keep_reference => false)
 		ret = yield sqldb if block_given?
 		sqls = sqldb.sqls
 

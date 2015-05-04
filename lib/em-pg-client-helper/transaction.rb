@@ -362,7 +362,7 @@ class PG::EM::Client::Helper::Transaction
 	# call methods like `#literal` on, for easy quoting.
 	#
 	def usdb
-		@usdb ||= Sequel.connect("mock://postgres")
+		Thread.current[:em_pg_client_sequel_db] ||= Sequel.connect("mock://postgres", :keep_reference => false)
 	end
 
 	# Find the unique indexes for a table, and yield the columns in each.
