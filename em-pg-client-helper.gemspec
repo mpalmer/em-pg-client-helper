@@ -17,7 +17,7 @@ Gem::Specification.new do |s|
 
 	s.add_runtime_dependency "em-pg-client",     "~> 0.3"
 	s.add_runtime_dependency "git-version-bump", "~> 0.10"
-	s.add_runtime_dependency "sequel",           ">= 3.31.0", "< 5"
+	s.add_runtime_dependency "sequel",           ">= 3.31.0", "< 6"
 
 	s.add_development_dependency 'bundler'
 	s.add_development_dependency 'eventmachine'
