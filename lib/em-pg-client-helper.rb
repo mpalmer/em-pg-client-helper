@@ -84,6 +84,10 @@ module PG::EM::Client::Helper
 			      "Your block did not generate an SQL statement"
 		end
 
+              # remove transaction commands from our sqls list
+              transaction_values = ['BEGIN', 'COMMIT']
+              sqls -= transaction_values
+
 		if sqls.length > 1
 			raise PG::EM::Client::Helper::BadSequelError,
 			      "Your block generated multiple SQL statements"
